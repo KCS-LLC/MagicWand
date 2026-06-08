@@ -38,10 +38,14 @@ pub fn scan_steam() -> Vec<DetectedGame> {
                 for entry in entries.flatten() {
                     if entry.path().is_dir() {
                         let name = entry.file_name().to_string_lossy().to_string();
-                        // Heuristic: Check for .exe in root or 'bin' folder
+                        let folder_path = entry.path();
+                        
+                        // Heuristic: Check for various likely .exe names
                         let possible_exes = [
-                            entry.path().join(format!("{}.exe", name)),
-                            entry.path().join("bin").join(format!("{}.exe", name)),
+                            folder_path.join(format!("{}.exe", name)),
+                            folder_path.join(format!("{}.exe", name.replace(" ", ""))),
+                            folder_path.join("SkyrimSE.exe"), // Explicitly check for Skyrim
+                            folder_path.join("bin").join(format!("{}.exe", name)),
                         ];
                         
                         for exe in possible_exes {

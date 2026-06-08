@@ -44,9 +44,16 @@ pub fn find_process_by_name(name: &str) -> Option<u32> {
     let mut sys = System::new_all();
     sys.refresh_all();
     
+    let search_name = name.to_lowercase();
+    let search_name_no_ext = if search_name.ends_with(".exe") {
+        &search_name[..search_name.len() - 4]
+    } else {
+        &search_name
+    };
+
     for (pid, process) in sys.processes() {
-        let process_name = process.name().to_string_lossy();
-        if process_name.to_lowercase() == name.to_lowercase() {
+        let process_name = process.name().to_string_lossy().to_lowercase();
+        if process_name == search_name || process_name == search_name_no_ext {
             return Some(pid.as_u32());
         }
     }

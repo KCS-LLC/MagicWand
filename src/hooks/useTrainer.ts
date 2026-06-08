@@ -5,6 +5,7 @@ export interface Cheat {
   id: string;
   name: string;
   type: 'toggle' | 'action';
+  valueType?: 'int' | 'float';
   module: string;
   base: string;
   offsets: string[];
@@ -70,7 +71,8 @@ export function useTrainer() {
         offsets: cheat.offsets.map(o => parseInt(o, 16))
       });
 
-      await invoke('write_int', {
+      const command = cheat.valueType === 'float' ? 'write_float' : 'write_int';
+      await invoke(command, {
         pid,
         address: finalAddr,
         value: cheat.onValue

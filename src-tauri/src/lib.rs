@@ -36,6 +36,11 @@ fn write_int(pid: u32, address: usize, value: i32) -> Result<(), String> {
     engine::write_memory(pid, address, &value.to_le_bytes())
 }
 
+#[tauri::command]
+fn write_float(pid: u32, address: usize, value: f32) -> Result<(), String> {
+    engine::write_memory(pid, address, &value.to_le_bytes())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -46,7 +51,8 @@ pub fn run() {
             get_module_base,
             resolve_pointer,
             read_int,
-            write_int
+            write_int,
+            write_float
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

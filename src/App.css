@@ -189,6 +189,8 @@ body, html {
   height: 200px;
   color: var(--text-muted);
 }
+
+.status-badge {
   padding: 0.25rem 0.5rem;
   border-radius: 0.25rem;
   font-size: 0.75rem;

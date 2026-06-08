@@ -4,12 +4,15 @@ import { invoke } from '@tauri-apps/api/core';
 export interface Cheat {
   id: string;
   name: string;
-  type: 'toggle' | 'action';
+  type: 'toggle' | 'action' | 'patch';
   valueType?: 'int' | 'float';
   module: string;
-  base: string;
+  base?: string;
+  signature?: string;
   offsets: string[];
   onValue: number;
+  onBytes?: number[]; // Bytes to write when active
+  offBytes?: number[]; // Original bytes to restore
   active?: boolean;
   currentValue?: string | number;
 }
@@ -31,6 +34,45 @@ export function useTrainer() {
       .then((data) => setTrainers(data.games));
   }, []);
 
+  const getModuleBaseRaw = async (moduleName: string): Promise<string> => {
+    const res = await invoke<string | null>('get_module_base', { pid, moduleName });
+    return res || "0";
+  };
+
+  const resolveCheatAddress = async (cheat: Cheat): Promise<string> => {
+    if (!pid) throw new Error('Not connected to game');
+
+    let baseAddrStr: string;
+
+    if (cheat.signature) {
+      // DYNAMIC: Find address via AOB scan
+      const foundAddr = await invoke<string>('aob_scan', {
+        pid,
+        moduleName: cheat.module,
+        pattern: cheat.signature
+      });
+      // Add optional base offset to the signature result
+      baseAddrStr = (BigInt(foundAddr) + BigInt(cheat.base || "0")).toString();
+    } else if (cheat.base) {
+      // STATIC: Get module base and add offset
+      const modBase = await getModuleBaseRaw(cheat.module);
+      if (modBase === "0") throw new Error(`Module ${cheat.module} not found`);
+      baseAddrStr = (BigInt(modBase) + BigInt(cheat.base)).toString();
+    } else {
+      throw new Error('Cheat must have a base offset or a signature');
+    }
+
+    const modBase = await getModuleBaseRaw(cheat.module);
+    const relativeOffset = (BigInt(baseAddrStr) - BigInt(modBase)).toString();
+
+    return await invoke<string>('resolve_pointer', {
+      pid,
+      moduleName: cheat.module,
+      baseOffset: relativeOffset,
+      offsets: cheat.offsets
+    });
+  };
+
   // Polling for live values
   useEffect(() => {
     if (!pid || !activeGame) return;
@@ -38,13 +80,7 @@ export function useTrainer() {
     const interval = setInterval(async () => {
       const updatedCheats = await Promise.all(activeGame.cheats.map(async (cheat) => {
         try {
-          const finalAddr = await invoke<string>('resolve_pointer', {
-            pid,
-            moduleName: cheat.module,
-            baseOffset: cheat.base,
-            offsets: cheat.offsets
-          });
-
+          const finalAddr = await resolveCheatAddress(cheat);
           const command = cheat.valueType === 'float' ? 'read_float' : 'read_int';
           const val = await invoke<number>(command, { pid, address: finalAddr });
           return { ...cheat, currentValue: val };
@@ -76,7 +112,6 @@ export function useTrainer() {
   const toggleCheat = async (cheat: Cheat) => {
     if (!pid || !activeGame) return;
 
-    // Optimistically update UI
     setActiveGame({
       ...activeGame,
       cheats: activeGame.cheats.map(c => 
@@ -85,24 +120,24 @@ export function useTrainer() {
     });
 
     try {
-      const finalAddr = await invoke<string>('resolve_pointer', {
-        pid,
-        moduleName: cheat.module,
-        baseOffset: cheat.base,
-        offsets: cheat.offsets
-      });
+      const finalAddr = await resolveCheatAddress(cheat);
 
-      const command = cheat.valueType === 'float' ? 'write_float' : 'write_int';
-      await invoke(command, {
-        pid,
-        address: finalAddr,
-        value: cheat.onValue
-      });
+      if (cheat.type === 'patch') {
+        const bytes = !cheat.active ? cheat.onBytes : cheat.offBytes;
+        if (!bytes) throw new Error('Missing patch bytes');
+        await invoke('patch_bytes', { pid, address: finalAddr, bytes });
+      } else {
+        const command = cheat.valueType === 'float' ? 'write_float' : 'write_int';
+        await invoke(command, {
+          pid,
+          address: finalAddr,
+          value: cheat.onValue
+        });
+      }
 
       console.log(`Successfully applied cheat: ${cheat.name}`);
     } catch (err) {
       console.error('CRITICAL: Failed to apply cheat:', err);
-      // Revert UI on failure
       setActiveGame({
         ...activeGame,
         cheats: activeGame.cheats.map(c => 

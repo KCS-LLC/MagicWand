@@ -5,54 +5,56 @@
       "executable": "SkyrimSE.exe",
       "cheats": [
         {
-          "id": "skyrim-health",
+          "id": "skyrim-health-aob",
           "name": "Infinite Health",
           "type": "toggle",
           "valueType": "float",
           "module": "SkyrimSE.exe",
-          "base": "0x2FE95B0",
+          "signature": "48 8B 05 ?? ?? ?? ?? 48 8B D1 48 8B 00 48 85 C0",
           "offsets": ["0x1B0", "0x0"],
           "onValue": 99999
         },
         {
-          "id": "skyrim-magicka",
-          "name": "Infinite Magicka",
+          "id": "skyrim-carryweight-aob",
+          "name": "Unlimited Carry Weight",
           "type": "toggle",
           "valueType": "float",
           "module": "SkyrimSE.exe",
-          "base": "0x2FE95B0",
-          "offsets": ["0x1B0", "0x4"],
+          "signature": "48 8B 05 ?? ?? ?? ?? 48 8B D1 48 8B 00 48 85 C0",
+          "offsets": ["0x190", "0x28", "0x28"],
           "onValue": 99999
         },
         {
-          "id": "skyrim-stamina",
-          "name": "Infinite Stamina",
-          "type": "toggle",
-          "valueType": "float",
+          "id": "skyrim-shout-cooldown",
+          "name": "Instant Shouts",
+          "type": "patch",
           "module": "SkyrimSE.exe",
-          "base": "0x2FE95B0",
-          "offsets": ["0x1B0", "0x8"],
-          "onValue": 99999
+          "signature": "F3 0F 11 81 ?? ?? ?? ?? 48 8B 4B ?? 48 85 C9 74 ?? 48 8B 01 FF 90 ?? ?? ?? ?? 48 8B 0B",
+          "offsets": [],
+          "onValue": 0,
+          "onBytes": [0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90],
+          "offBytes": [0xF3, 0x0F, 0x11, 0x81, 0x14, 0x01, 0x00, 0x00]
         },
         {
-          "id": "skyrim-gold",
-          "name": "Set Gold to 50000",
+          "id": "skyrim-one-hit-kill",
+          "name": "One-Hit Kill",
+          "type": "patch",
+          "module": "SkyrimSE.exe",
+          "signature": "F3 0F 11 81 54 01 00 00",
+          "offsets": [],
+          "onValue": 0,
+          "onBytes": [0x0F, 0x57, 0xC0, 0xF3, 0x0F, 0x11, 0x81, 0x54, 0x01, 0x00, 0x00],
+          "offBytes": [0xF3, 0x0F, 0x11, 0x81, 0x54, 0x01, 0x00, 0x00]
+        },
+        {
+          "id": "skyrim-gold-aob",
+          "name": "Gold (AOB Scan)",
           "type": "action",
           "valueType": "int",
           "module": "SkyrimSE.exe",
-          "base": "0x2FE95B0",
+          "signature": "48 8B 05 ?? ?? ?? ?? 48 8B D1 48 8B 00 48 85 C0",
           "offsets": ["0x10"],
           "onValue": 50000
-        },
-        {
-          "id": "skyrim-health-alt",
-          "name": "Health (Alt Pointer)",
-          "type": "toggle",
-          "valueType": "float",
-          "module": "SkyrimSE.exe",
-          "base": "0x2F26EF8",
-          "offsets": ["0x1B0", "0x0"],
-          "onValue": 99999
         }
       ]
     },
@@ -61,22 +63,24 @@
       "executable": "dummy-game.exe",
       "cheats": [
         {
-          "id": "dummy-health",
-          "name": "Set Health to 999",
+          "id": "dummy-health-aob",
+          "name": "Health (AOB Scan)",
           "type": "toggle",
           "valueType": "int",
           "module": "dummy-game.exe",
-          "base": "0x22004",
+          "signature": "DE AD BE EF 13 37 13 37 42 42 42 42 AA BB CC DD",
+          "base": "0x10",
           "offsets": [],
           "onValue": 999
         },
         {
-          "id": "dummy-gold",
-          "name": "Set Gold to 1337",
+          "id": "dummy-gold-aob",
+          "name": "Gold (AOB Scan)",
           "type": "toggle",
           "valueType": "int",
           "module": "dummy-game.exe",
-          "base": "0x22000",
+          "signature": "DE AD BE EF 13 37 13 37 42 42 42 42 AA BB CC DD",
+          "base": "0x14",
           "offsets": [],
           "onValue": 1337
         }

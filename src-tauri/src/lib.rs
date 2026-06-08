@@ -13,8 +13,14 @@ fn find_game(name: &str) -> Option<u32> {
 
 #[tauri::command]
 fn get_module_base(pid: u32, module_name: &str) -> Option<String> {
-    let res = engine::get_module_base_address(pid, module_name);
-    res.map(|addr| addr.to_string())
+    let res = engine::get_module_info(pid, module_name);
+    res.map(|(addr, _)| addr.to_string())
+}
+
+#[tauri::command]
+fn aob_scan(pid: u32, module_name: &str, pattern: &str) -> Result<String, String> {
+    let res = engine::aob_scan(pid, module_name, pattern)?;
+    Ok(res.to_string())
 }
 
 #[tauri::command]
@@ -25,7 +31,8 @@ fn resolve_pointer(
     offsets: Vec<String>
 ) -> Result<String, String> {
     // 1. Get Module Base
-    let module_base = engine::get_module_base_address(pid, &module_name)
+    let module_base = engine::get_module_info(pid, &module_name)
+        .map(|(addr, _)| addr)
         .ok_or_else(|| format!("Module {} not found", module_name))?;
 
     // 2. Parse Base Offset (handle 0x prefix)
@@ -50,17 +57,12 @@ fn resolve_pointer(
     match res {
         Ok(addr) => {
             if addr < 0x10000 {
-                println!("DEBUG: resolve_pointer(module={}, base={}) -> Resolved to Null/Invalid (0x{:X})", module_name, base_offset, addr);
-                Err("Resolved to null or invalid address".to_string())
+                Ok(addr.to_string())
             } else {
-                println!("DEBUG: resolve_pointer(module={}, base={}) -> 0x{:X}", module_name, base_offset, addr);
                 Ok(addr.to_string())
             }
         }
-        Err(e) => {
-            println!("DEBUG: resolve_pointer ERROR: {}", e);
-            Err(e)
-        }
+        Err(e) => Err(e)
     }
 }
 
@@ -98,6 +100,12 @@ fn write_float(pid: u32, address: String, value: f32) -> Result<(), String> {
     engine::write_memory(pid, addr as usize, &value.to_le_bytes())
 }
 
+#[tauri::command]
+fn patch_bytes(pid: u32, address: String, bytes: Vec<u8>) -> Result<(), String> {
+    let addr = address.parse::<u64>().map_err(|e| e.to_string())?;
+    engine::patch_memory(pid, addr as usize, &bytes)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -106,11 +114,13 @@ pub fn run() {
             scan_games,
             find_game,
             get_module_base,
+            aob_scan,
             resolve_pointer,
             read_int,
             read_float,
             write_int,
-            write_float
+            write_float,
+            patch_bytes
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

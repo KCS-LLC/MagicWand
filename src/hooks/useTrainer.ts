@@ -11,6 +11,7 @@ export interface Cheat {
   offsets: string[];
   onValue: number;
   active?: boolean;
+  currentValue?: string | number;
 }
 
 export interface GameTrainer {
@@ -29,6 +30,34 @@ export function useTrainer() {
       .then((res) => res.json())
       .then((data) => setTrainers(data.games));
   }, []);
+
+  // Polling for live values
+  useEffect(() => {
+    if (!pid || !activeGame) return;
+
+    const interval = setInterval(async () => {
+      const updatedCheats = await Promise.all(activeGame.cheats.map(async (cheat) => {
+        try {
+          const finalAddr = await invoke<string>('resolve_pointer', {
+            pid,
+            moduleName: cheat.module,
+            baseOffset: cheat.base,
+            offsets: cheat.offsets
+          });
+
+          const command = cheat.valueType === 'float' ? 'read_float' : 'read_int';
+          const val = await invoke<number>(command, { pid, address: finalAddr });
+          return { ...cheat, currentValue: val };
+        } catch (e) {
+          return { ...cheat, currentValue: '???' };
+        }
+      }));
+
+      setActiveGame(prev => prev ? { ...prev, cheats: updatedCheats } : null);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [pid, activeGame?.name]);
 
   const selectGame = async (game: GameTrainer | null) => {
     setActiveGame(game);
@@ -56,19 +85,11 @@ export function useTrainer() {
     });
 
     try {
-      const baseAddr = await invoke<number | null>('get_module_base', { 
-        pid, 
-        moduleName: cheat.module 
-      });
-
-      if (!baseAddr) {
-        throw new Error(`Module ${cheat.module} not found`);
-      }
-
-      const finalAddr = await invoke<number>('resolve_pointer', {
+      const finalAddr = await invoke<string>('resolve_pointer', {
         pid,
-        baseAddress: baseAddr + parseInt(cheat.base, 16),
-        offsets: cheat.offsets.map(o => parseInt(o, 16))
+        moduleName: cheat.module,
+        baseOffset: cheat.base,
+        offsets: cheat.offsets
       });
 
       const command = cheat.valueType === 'float' ? 'write_float' : 'write_int';
@@ -80,7 +101,7 @@ export function useTrainer() {
 
       console.log(`Successfully applied cheat: ${cheat.name}`);
     } catch (err) {
-      console.error('Failed to apply cheat:', err);
+      console.error('CRITICAL: Failed to apply cheat:', err);
       // Revert UI on failure
       setActiveGame({
         ...activeGame,

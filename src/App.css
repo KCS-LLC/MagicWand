@@ -156,11 +156,19 @@ body, html {
   border: 1px solid #1e293b;
 }
 
-.cheat-name {
-  font-weight: 500;
+.cheat-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
-.status-badge {
+.live-value {
+  font-size: 0.85rem;
+  color: var(--accent-color);
+  font-family: monospace;
+}
+
+.switch {
   padding: 0.25rem 0.5rem;
   border-radius: 0.25rem;
   font-size: 0.75rem;

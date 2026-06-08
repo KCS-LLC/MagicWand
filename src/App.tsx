@@ -77,7 +77,14 @@ function App() {
             <div className="cheat-list">
               {activeGame.cheats.map((cheat) => (
                 <div className="cheat-item" key={cheat.id}>
-                  <span className="cheat-name">{cheat.name}</span>
+                  <div className="cheat-info">
+                    <span className="cheat-name">{cheat.name}</span>
+                    {cheat.currentValue !== undefined && (
+                      <span className="live-value">
+                        Value: {typeof cheat.currentValue === 'number' ? cheat.currentValue.toFixed(2) : cheat.currentValue}
+                      </span>
+                    )}
+                  </div>
                   <label className="switch">
                     <input 
                       type="checkbox" 

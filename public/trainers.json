@@ -10,7 +10,7 @@
           "type": "toggle",
           "valueType": "float",
           "module": "SkyrimSE.exe",
-          "base": "0x2F26EF8",
+          "base": "0x2FE95B0",
           "offsets": ["0x1B0", "0x0"],
           "onValue": 99999
         },
@@ -20,7 +20,7 @@
           "type": "toggle",
           "valueType": "float",
           "module": "SkyrimSE.exe",
-          "base": "0x2F26EF8",
+          "base": "0x2FE95B0",
           "offsets": ["0x1B0", "0x4"],
           "onValue": 99999
         },
@@ -30,7 +30,7 @@
           "type": "toggle",
           "valueType": "float",
           "module": "SkyrimSE.exe",
-          "base": "0x2F26EF8",
+          "base": "0x2FE95B0",
           "offsets": ["0x1B0", "0x8"],
           "onValue": 99999
         },
@@ -40,9 +40,19 @@
           "type": "action",
           "valueType": "int",
           "module": "SkyrimSE.exe",
-          "base": "0x2F26EF8",
+          "base": "0x2FE95B0",
           "offsets": ["0x10"],
           "onValue": 50000
+        },
+        {
+          "id": "skyrim-health-alt",
+          "name": "Health (Alt Pointer)",
+          "type": "toggle",
+          "valueType": "float",
+          "module": "SkyrimSE.exe",
+          "base": "0x2F26EF8",
+          "offsets": ["0x1B0", "0x0"],
+          "onValue": 99999
         }
       ]
     },

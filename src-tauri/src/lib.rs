@@ -23,6 +23,16 @@ fn aob_scan(pid: u32, module_name: &str, pattern: &str) -> Result<String, String
     Ok(res.to_string())
 }
 
+// Helper to parse address strings that might be hex or decimal
+fn parse_addr(s: &str) -> Result<u64, String> {
+    let clean = s.trim().to_lowercase();
+    if clean.starts_with("0x") {
+        u64::from_str_radix(&clean[2..], 16).map_err(|e| format!("Hex parse err: {}", e))
+    } else {
+        clean.parse::<u64>().map_err(|e| format!("Decimal parse err: {}", e))
+    }
+}
+
 #[tauri::command]
 fn resolve_pointer(
     pid: u32, 
@@ -30,45 +40,25 @@ fn resolve_pointer(
     base_offset: String, 
     offsets: Vec<String>
 ) -> Result<String, String> {
-    // 1. Get Module Base
     let module_base = engine::get_module_info(pid, &module_name)
         .map(|(addr, _)| addr)
         .ok_or_else(|| format!("Module {} not found", module_name))?;
 
-    // 2. Parse Base Offset (handle 0x prefix)
-    let clean_base = base_offset.trim_start_matches("0x");
-    let offset_val = u64::from_str_radix(clean_base, 16)
-        .map_err(|e| format!("Failed to parse base offset {}: {}", base_offset, e))?;
-
+    let offset_val = parse_addr(&base_offset)?;
     let start_address = (module_base as u64) + offset_val;
     
-    // 3. Parse Sub-offsets
     let mut parsed_offsets = Vec::new();
     for o in offsets {
-        let clean_o = o.trim_start_matches("0x");
-        let val = u64::from_str_radix(clean_o, 16)
-            .map_err(|e| format!("Failed to parse offset {}: {}", o, e))?;
-        parsed_offsets.push(val as usize);
+        parsed_offsets.push(parse_addr(&o)? as usize);
     }
 
-    // 4. Resolve Path
-    let res = engine::resolve_pointer_path(pid, start_address as usize, &parsed_offsets);
-    
-    match res {
-        Ok(addr) => {
-            if addr < 0x10000 {
-                Ok(addr.to_string())
-            } else {
-                Ok(addr.to_string())
-            }
-        }
-        Err(e) => Err(e)
-    }
+    let res = engine::resolve_pointer_path(pid, start_address as usize, &parsed_offsets)?;
+    Ok(res.to_string())
 }
 
 #[tauri::command]
 fn read_int(pid: u32, address: String) -> Result<i32, String> {
-    let addr = address.parse::<u64>().map_err(|e| e.to_string())?;
+    let addr = parse_addr(&address)?;
     let data = engine::read_memory(pid, addr as usize, 4)?;
     if data.len() == 4 {
         Ok(i32::from_le_bytes(data.try_into().unwrap()))
@@ -79,7 +69,7 @@ fn read_int(pid: u32, address: String) -> Result<i32, String> {
 
 #[tauri::command]
 fn read_float(pid: u32, address: String) -> Result<f32, String> {
-    let addr = address.parse::<u64>().map_err(|e| e.to_string())?;
+    let addr = parse_addr(&address)?;
     let data = engine::read_memory(pid, addr as usize, 4)?;
     if data.len() == 4 {
         Ok(f32::from_le_bytes(data.try_into().unwrap()))
@@ -90,19 +80,19 @@ fn read_float(pid: u32, address: String) -> Result<f32, String> {
 
 #[tauri::command]
 fn write_int(pid: u32, address: String, value: i32) -> Result<(), String> {
-    let addr = address.parse::<u64>().map_err(|e| e.to_string())?;
+    let addr = parse_addr(&address)?;
     engine::write_memory(pid, addr as usize, &value.to_le_bytes())
 }
 
 #[tauri::command]
 fn write_float(pid: u32, address: String, value: f32) -> Result<(), String> {
-    let addr = address.parse::<u64>().map_err(|e| e.to_string())?;
+    let addr = parse_addr(&address)?;
     engine::write_memory(pid, addr as usize, &value.to_le_bytes())
 }
 
 #[tauri::command]
 fn patch_bytes(pid: u32, address: String, bytes: Vec<u8>) -> Result<(), String> {
-    let addr = address.parse::<u64>().map_err(|e| e.to_string())?;
+    let addr = parse_addr(&address)?;
     engine::patch_memory(pid, addr as usize, &bytes)
 }
 

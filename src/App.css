@@ -162,13 +162,33 @@ body, html {
   gap: 0.25rem;
 }
 
+.trainer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #1e293b;
+}
+
+.trainer-header h1 {
+  margin: 0;
+}
+
 .live-value {
   font-size: 0.85rem;
   color: var(--accent-color);
-  font-family: monospace;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  opacity: 0.8;
 }
 
-.switch {
+.loading-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+  color: var(--text-muted);
+}
   padding: 0.25rem 0.5rem;
   border-radius: 0.25rem;
   font-size: 0.75rem;

@@ -21,7 +21,7 @@ function App() {
         const games = await invoke<DetectedGame[]>("scan_games");
         setDetectedGames(games);
       } catch (error) {
-        console.error("Failed to scan games:", error);
+        console.error("APP: scan_games error:", error);
       } finally {
         setLoading(false);
       }
@@ -29,20 +29,17 @@ function App() {
     fetchGames();
   }, []);
 
-  const filteredGames = detectedGames.filter(game => 
-    game.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   const handleGameClick = (game: DetectedGame) => {
-    // Find matching trainer config if exists
     const trainer = trainers.find(t => 
       t.executable.toLowerCase() === (game.name + ".exe").toLowerCase() ||
-      t.executable.toLowerCase() === game.name.toLowerCase()
+      t.executable.toLowerCase() === game.name.toLowerCase() ||
+      t.name.toLowerCase() === game.name.toLowerCase()
     );
+
     if (trainer) {
       selectGame(trainer);
     } else {
-      // For demo, if no trainer matches, let's just use the first dummy one
+      // Fallback for demo/testing
       if (trainers.length > 0) selectGame(trainers[0]);
     }
   };
@@ -50,11 +47,11 @@ function App() {
   return (
     <div className="app-container">
       <aside className="sidebar">
-        <div className="logo">
-          <span>✨</span> Magic Wand
-        </div>
+        <div className="logo"><span>✨</span> Magic Wand</div>
         <nav>
-          <div className="nav-item active">Library</div>
+          <div className={`nav-item ${!activeGame ? 'active' : ''}`} onClick={() => selectGame(null)}>
+            Library
+          </div>
           <div className="nav-item">Community</div>
           <div className="nav-item">Settings</div>
         </nav>
@@ -62,28 +59,23 @@ function App() {
 
       <main className="main-content">
         {activeGame ? (
-          <div>
-            <button className="back-button" onClick={() => selectGame(null)}>
-              ← Back to Library
-            </button>
-            <header className="header">
-              <div>
-                <h1>{activeGame.name}</h1>
-                <span className={`status-badge ${pid ? 'status-online' : 'status-offline'}`}>
-                  {pid ? `CONNECTED (PID: ${pid})` : 'NOT RUNNING'}
-                </span>
-              </div>
-            </header>
+          <div className="trainer-dashboard">
+            <button className="back-button" onClick={() => selectGame(null)}>← Back to Library</button>
+            <div className="trainer-header">
+              <h1>{activeGame.name}</h1>
+              <span className={`status-badge ${pid ? 'status-online' : 'status-offline'}`}>
+                 {pid ? `CONNECTED (PID: ${pid})` : 'WAITING FOR GAME...'}
+              </span>
+            </div>
+
             <div className="cheat-list">
               {activeGame.cheats.map((cheat) => (
                 <div className="cheat-item" key={cheat.id}>
                   <div className="cheat-info">
                     <span className="cheat-name">{cheat.name}</span>
-                    {cheat.currentValue !== undefined && (
-                      <span className="live-value">
-                        Value: {typeof cheat.currentValue === 'number' ? cheat.currentValue.toFixed(2) : cheat.currentValue}
-                      </span>
-                    )}
+                    <span className="live-value">
+                      {cheat.currentValue !== undefined ? `Value: ${typeof cheat.currentValue === 'number' ? cheat.currentValue.toFixed(2) : cheat.currentValue}` : 'Detecting...'}
+                    </span>
                   </div>
                   <label className="switch">
                     <input 
@@ -99,7 +91,7 @@ function App() {
             </div>
           </div>
         ) : (
-          <>
+          <div className="library-view">
             <header className="header">
               <h1>My Games</h1>
               <input 
@@ -112,11 +104,12 @@ function App() {
             </header>
 
             {loading ? (
-              <p>Scanning system for games...</p>
+              <div className="loading-state">Scanning system for games...</div>
             ) : (
               <div className="game-grid">
-                {filteredGames.length > 0 ? (
-                  filteredGames.map((game, index) => (
+                {detectedGames
+                  .filter(g => g.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                  .map((game, index) => (
                     <div className="game-card" key={index} onClick={() => handleGameClick(game)}>
                       <div className="game-image">🎮</div>
                       <div className="game-info">
@@ -125,12 +118,10 @@ function App() {
                       </div>
                     </div>
                   ))
-                ) : (
-                  <p>No games found matching "{searchQuery}".</p>
-                )}
+                }
               </div>
             )}
-          </>
+          </div>
         )}
       </main>
     </div>

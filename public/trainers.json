@@ -1,0 +1,43 @@
+{
+  "games": [
+    {
+      "name": "Magic Wand Dummy Game",
+      "executable": "dummy-game.exe",
+      "cheats": [
+        {
+          "id": "dummy-health",
+          "name": "Set Health to 999",
+          "type": "toggle",
+          "module": "dummy-game.exe",
+          "base": "0x22004",
+          "offsets": [],
+          "onValue": 999
+        },
+        {
+          "id": "dummy-gold",
+          "name": "Set Gold to 1337",
+          "type": "toggle",
+          "module": "dummy-game.exe",
+          "base": "0x22000",
+          "offsets": [],
+          "onValue": 1337
+        }
+      ]
+    },
+    {
+      "name": "Steam Demo Game",
+      "executable": "SteamGame.exe",
+      "cheats": [
+        {
+          "id": "inf-health",
+          "name": "Infinite Health",
+          "type": "toggle",
+          "module": "SteamGame.exe",
+          "base": "0x123456",
+          "offsets": ["0x10", "0x20"],
+          "onValue": 999
+        }
+      ]
+    }
+  ]
+}

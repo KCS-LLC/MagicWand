@@ -1,7 +1,11 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTrainer } from "./hooks/useTrainer";
+import { CommunityPage } from "./pages/CommunityPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import "./App.css";
+
+type Page = 'library' | 'community' | 'settings';
 
 interface DetectedGame {
   name: string;
@@ -14,7 +18,13 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
-  const { activeGame, trainers, selectGame, applyCheat, pid } = useTrainer();
+  const [currentPage, setCurrentPage] = useState<Page>('library');
+  const { activeGame, trainers, selectGame, applyCheat, pid, pollInterval, setPollInterval } = useTrainer();
+
+  const navTo = (page: Page) => {
+    selectGame(null);
+    setCurrentPage(page);
+  };
 
   useEffect(() => {
     async function fetchGames() {
@@ -50,18 +60,31 @@ function App() {
       <aside className="sidebar">
         <div className="logo"><span>✨</span> Magic Wand</div>
         <nav>
-          <div className={`nav-item ${!activeGame ? 'active' : ''}`} onClick={() => selectGame(null)}>
+          <div
+            className={`nav-item ${currentPage === 'library' && !activeGame ? 'active' : ''}`}
+            onClick={() => navTo('library')}
+          >
             Library
           </div>
-          <div className="nav-item">Community</div>
-          <div className="nav-item">Settings</div>
+          <div
+            className={`nav-item ${currentPage === 'community' && !activeGame ? 'active' : ''}`}
+            onClick={() => navTo('community')}
+          >
+            Community
+          </div>
+          <div
+            className={`nav-item ${currentPage === 'settings' && !activeGame ? 'active' : ''}`}
+            onClick={() => navTo('settings')}
+          >
+            Settings
+          </div>
         </nav>
       </aside>
 
       <main className="main-content">
         {activeGame ? (
           <div className="trainer-dashboard">
-            <button className="back-button" onClick={() => selectGame(null)}>← Back to Library</button>
+            <button className="back-button" onClick={() => selectGame(null)}>← Back</button>
             <div className="trainer-header">
               <h1>{activeGame.name}</h1>
               <span className={`status-badge ${pid ? 'status-online' : 'status-offline'}`}>
@@ -114,6 +137,10 @@ function App() {
               ))}
             </div>
           </div>
+        ) : currentPage === 'community' ? (
+          <CommunityPage />
+        ) : currentPage === 'settings' ? (
+          <SettingsPage pollInterval={pollInterval} onPollIntervalChange={setPollInterval} />
         ) : (
           <div className="library-view">
             <header className="header">

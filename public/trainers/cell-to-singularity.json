@@ -5,16 +5,18 @@
     {
       "id": "cts-darwinium",
       "name": "Darwinium",
-      "type": "mono",
+      "type": "mono_chain",
       "valueType": "double",
       "module": "mono-2.0-bdwgc.dll",
       "monoAssembly": "Assembly-CSharp",
       "monoNamespace": "",
-      "monoClass": "???",
-      "monoField": "???",
-      "monoStatic": true,
+      "monoClass": "Calculator",
+      "monoStaticField": "instance",
+      "monoStaticViaParent": true,
+      "monoInstanceField": "_bank",
+      "monoFinalOffset": 48,
       "offsets": [],
-      "onValue": 1000
+      "onValue": 1000000
     },
     {
       "id": "cts-darwinium-scan",
@@ -23,7 +25,7 @@
       "valueType": "double",
       "module": "",
       "offsets": [],
-      "onValue": 1000
+      "onValue": 1000000
     }
   ]
 }

@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 export interface Cheat {
   id: string;
   name: string;
-  type: 'toggle' | 'action' | 'patch' | 'scan' | 'mono';
+  type: 'toggle' | 'action' | 'patch' | 'scan' | 'mono' | 'mono_chain';
   valueType?: 'int' | 'float' | 'double';
   module: string;
   base?: string;
@@ -18,6 +18,11 @@ export interface Cheat {
   monoClass?: string;
   monoField?: string;
   monoStatic?: boolean;
+  // mono_chain-specific fields:
+  monoStaticField?: string;
+  monoStaticViaParent?: boolean;
+  monoInstanceField?: string;
+  monoFinalOffset?: number;
   active?: boolean;
   currentValue?: string | number;
 }
@@ -78,6 +83,18 @@ export function useTrainer() {
         className: cheat.monoClass ?? '',
         fieldName: cheat.monoField ?? '',
         isStatic: cheat.monoStatic ?? true,
+      });
+    } else if (cheat.type === 'mono_chain') {
+      finalAddr = await invoke<string>('resolve_mono_chain', {
+        pid: pidRef.current,
+        moduleName: cheat.module,
+        assembly: cheat.monoAssembly ?? 'Assembly-CSharp',
+        namespace: cheat.monoNamespace ?? '',
+        className: cheat.monoClass ?? '',
+        staticField: cheat.monoStaticField ?? 'instance',
+        viaParent: cheat.monoStaticViaParent ?? false,
+        instanceField: cheat.monoInstanceField ?? '',
+        finalOffset: cheat.monoFinalOffset ?? 0,
       });
     } else {
       let baseAddrStr: string;
@@ -155,7 +172,7 @@ export function useTrainer() {
   const applyCheat = async (cheat: Cheat, customValueStr?: string) => {
     if (!pid || !activeGame) return;
 
-    if (cheat.type === 'action' || cheat.type === 'mono') {
+    if (cheat.type === 'action' || cheat.type === 'mono' || cheat.type === 'mono_chain') {
       try {
         const addr = await resolveCheatAddress(cheat);
         const hexAddr = "0x" + BigInt(addr).toString(16);

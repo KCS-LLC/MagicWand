@@ -69,6 +69,8 @@ struct MonoOffsets {
     field_offset:        usize,
     runtime_info_vtable: usize,
     vtable_data:         usize,
+    /// MonoClass: offset of MonoClass* parent pointer
+    class_parent:        usize,
 }
 
 impl MonoOffsets {
@@ -90,6 +92,7 @@ impl MonoOffsets {
             field_offset:        0x18,
             runtime_info_vtable: 0x08,
             vtable_data:         0x40,
+            class_parent:        0x28,
         }
     }
 }
@@ -169,6 +172,70 @@ fn get_static_field_address(pid: u32, klass: usize, field_offset: u32, off: &Mon
     let vtable       = read_ptr(pid, runtime_info + off.runtime_info_vtable)?;
     let static_data  = read_ptr(pid, vtable + off.vtable_data)?;
     Some(static_data + field_offset as usize)
+}
+
+fn get_parent_class(pid: u32, klass: usize, off: &MonoOffsets) -> Option<usize> {
+    let parent = read_ptr(pid, klass + off.class_parent)?;
+    if parent == 0 { None } else { Some(parent) }
+}
+
+fn get_instance_field_offset(pid: u32, klass: usize, field_name: &str, off: &MonoOffsets) -> Result<usize, String> {
+    find_field_offset(pid, klass, field_name, off)
+        .map(|o| o as usize)
+        .ok_or_else(|| format!("Field '{}' not found", field_name))
+}
+
+/// Resolve a three-step instance chain:
+///   (parent class static field → instance ptr) + (instance field offset) + (struct offset)
+///
+/// Returns the address of the final primitive value in the target process.
+pub fn resolve_mono_chain(
+    pid: u32,
+    mono_module_base: usize,
+    assembly_name: &str,
+    namespace: &str,
+    class_name: &str,
+    static_field: &str,
+    via_parent: bool,
+    instance_field: &str,
+    final_offset: usize,
+) -> Result<usize, String> {
+    let off = MonoOffsets::unity_default();
+
+    let domain = get_root_domain(pid, mono_module_base)
+        .ok_or("Could not locate Mono root domain")?;
+
+    let assembly = find_assembly(pid, domain, assembly_name, &off)
+        .ok_or_else(|| format!("Assembly '{}' not found", assembly_name))?;
+
+    let klass = find_class(pid, assembly, namespace, class_name, &off)
+        .ok_or_else(|| format!("Class '{}.{}' not found", namespace, class_name))?;
+
+    // Step 1: get the class that owns the static instance pointer
+    let static_class = if via_parent {
+        get_parent_class(pid, klass, &off)
+            .ok_or_else(|| format!("No parent class found for '{}'", class_name))?
+    } else {
+        klass
+    };
+
+    // Step 2: read the static field → instance pointer
+    let static_off = find_field_offset(pid, static_class, static_field, &off)
+        .ok_or_else(|| format!("Static field '{}' not found on parent class", static_field))?;
+    let static_addr = get_static_field_address(pid, static_class, static_off, &off)
+        .ok_or("Could not resolve static vtable for parent class")?;
+    let instance_ptr = read_ptr(pid, static_addr)
+        .ok_or("Static field pointer is null — game may not be fully loaded yet")?;
+    if instance_ptr == 0 {
+        return Err("Instance pointer is null — singleton not yet initialized".to_string());
+    }
+
+    // Step 3: get the instance field offset on the original class
+    let field_offset = get_instance_field_offset(pid, klass, instance_field, &off)?;
+
+    // instance_ptr + field_offset = start of value-type struct (_bank / Cry)
+    // + final_offset = primitive field within that struct (Cry.c = Darwinium)
+    Ok(instance_ptr + field_offset + final_offset)
 }
 
 /// Resolve a Mono static field to its runtime address in the target process.

@@ -115,6 +115,27 @@ fn scan_value(pid: u32, value_type: String, value: f64) -> Result<Vec<String>, S
 }
 
 #[tauri::command]
+fn resolve_mono_chain(
+    pid: u32,
+    module_name: String,
+    assembly: String,
+    namespace: String,
+    class_name: String,
+    static_field: String,
+    via_parent: bool,
+    instance_field: String,
+    final_offset: usize,
+) -> Result<String, String> {
+    let (mono_base, _) = engine::get_module_info(pid, &module_name)
+        .ok_or_else(|| format!("Module '{}' not found in process", module_name))?;
+    let addr = mono::resolve_mono_chain(
+        pid, mono_base, &assembly, &namespace, &class_name,
+        &static_field, via_parent, &instance_field, final_offset,
+    )?;
+    Ok(format!("0x{:X}", addr))
+}
+
+#[tauri::command]
 fn resolve_mono_field(
     pid: u32,
     module_name: String,
@@ -156,7 +177,8 @@ pub fn run() {
             write_double,
             scan_value,
             patch_bytes,
-            resolve_mono_field
+            resolve_mono_field,
+            resolve_mono_chain
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

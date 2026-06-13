@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTrainer, Cheat } from "./hooks/useTrainer";
 import { CommunityPage } from "./pages/CommunityPage";
@@ -74,19 +74,21 @@ function App() {
     await invoke(cmd, { pid, address: state.cachedAddress, value: cheat.onValue });
   };
 
-  useEffect(() => {
-    async function fetchGames() {
-      try {
-        const games = await invoke<DetectedGame[]>("scan_games");
-        setDetectedGames(games);
-      } catch (error) {
-        console.error("APP: scan_games error:", error);
-      } finally {
-        setLoading(false);
-      }
+  const fetchGames = useCallback(async () => {
+    setLoading(true);
+    try {
+      const games = await invoke<DetectedGame[]>("scan_games");
+      setDetectedGames(games);
+    } catch (error) {
+      console.error("APP: scan_games error:", error);
+    } finally {
+      setLoading(false);
     }
-    fetchGames();
   }, []);
+
+  useEffect(() => {
+    fetchGames();
+  }, [fetchGames]);
 
   const handleGameClick = (game: DetectedGame) => {
     const trainer = trainers.find(t =>
@@ -243,13 +245,18 @@ function App() {
           <div className="library-view">
             <header className="header">
               <h1>My Games</h1>
-              <input 
-                type="text" 
-                className="search-bar" 
-                placeholder="Search library..." 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  className="search-bar"
+                  placeholder="Search library..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                <button className="fire-button" onClick={fetchGames} disabled={loading} title="Rescan for running games">
+                  {loading ? '...' : '↻'}
+                </button>
+              </div>
             </header>
 
             {loading ? (

@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 export interface Cheat {
   id: string;
   name: string;
-  type: 'toggle' | 'action' | 'patch';
+  type: 'toggle' | 'action' | 'patch' | 'scan';
   valueType?: 'int' | 'float';
   module: string;
   base?: string;

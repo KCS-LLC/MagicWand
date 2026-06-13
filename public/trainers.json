@@ -85,6 +85,21 @@
           "onValue": 1337
         }
       ]
+    },
+    {
+      "name": "Cell to Singularity",
+      "executable": "CellToSingularity.exe",
+      "cheats": [
+        {
+          "id": "cts-darwinium",
+          "name": "Darwinium",
+          "type": "scan",
+          "valueType": "double",
+          "module": "",
+          "offsets": [],
+          "onValue": 1000
+        }
+      ]
     }
   ]
 }

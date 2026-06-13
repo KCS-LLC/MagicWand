@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useTrainer, Cheat } from "./hooks/useTrainer";
 import { CommunityPage } from "./pages/CommunityPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -28,7 +29,14 @@ function App() {
   const [scanInputs, setScanInputs] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState<Page>('library');
   const [scanMode, setScanMode] = useState(false);
+  const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   const { activeGame, trainers, selectGame, applyCheat, pid, pollInterval, setPollInterval } = useTrainer();
+
+  const toggleAlwaysOnTop = async () => {
+    const next = !alwaysOnTop;
+    await getCurrentWindow().setAlwaysOnTop(next);
+    setAlwaysOnTop(next);
+  };
 
   const navTo = (page: Page) => {
     setScanStates({});
@@ -127,6 +135,16 @@ function App() {
             Settings
           </div>
         </nav>
+        <div style={{ marginTop: 'auto' }}>
+          <button
+            className={`nav-item ${alwaysOnTop ? 'active' : ''}`}
+            onClick={toggleAlwaysOnTop}
+            title="Keep Magic Wand on top of other windows"
+            style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+          >
+            📌 Always on Top
+          </button>
+        </div>
       </aside>
 
       <main className="main-content">

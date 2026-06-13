@@ -1,0 +1,28 @@
+{
+  "name": "Magic Wand Dummy Game",
+  "executable": "dummy-game.exe",
+  "cheats": [
+    {
+      "id": "dummy-health-aob",
+      "name": "Health (AOB Scan)",
+      "type": "toggle",
+      "valueType": "int",
+      "module": "dummy-game.exe",
+      "signature": "DE AD BE EF 13 37 13 37 42 42 42 42 AA BB CC DD",
+      "base": "0x10",
+      "offsets": [],
+      "onValue": 999
+    },
+    {
+      "id": "dummy-gold-aob",
+      "name": "Gold (AOB Scan)",
+      "type": "toggle",
+      "valueType": "int",
+      "module": "dummy-game.exe",
+      "signature": "DE AD BE EF 13 37 13 37 42 42 42 42 AA BB CC DD",
+      "base": "0x14",
+      "offsets": [],
+      "onValue": 1337
+    }
+  ]
+}

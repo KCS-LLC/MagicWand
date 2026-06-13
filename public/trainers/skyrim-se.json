@@ -1,0 +1,58 @@
+{
+  "name": "Skyrim Special Edition",
+  "executable": "SkyrimSE.exe",
+  "cheats": [
+    {
+      "id": "skyrim-health-aob",
+      "name": "Infinite Health",
+      "type": "toggle",
+      "valueType": "float",
+      "module": "SkyrimSE.exe",
+      "signature": "48 8B 05 ?? ?? ?? ?? 48 8B D1 48 8B 00 48 85 C0",
+      "offsets": ["0x1B0", "0x0"],
+      "onValue": 99999
+    },
+    {
+      "id": "skyrim-carryweight-aob",
+      "name": "Unlimited Carry Weight",
+      "type": "toggle",
+      "valueType": "float",
+      "module": "SkyrimSE.exe",
+      "signature": "48 8B 05 ?? ?? ?? ?? 48 8B D1 48 8B 00 48 85 C0",
+      "offsets": ["0x190", "0x28", "0x28"],
+      "onValue": 99999
+    },
+    {
+      "id": "skyrim-shout-cooldown",
+      "name": "Instant Shouts",
+      "type": "patch",
+      "module": "SkyrimSE.exe",
+      "signature": "F3 0F 11 81 ?? ?? ?? ?? 48 8B 4B ?? 48 85 C9 74 ?? 48 8B 01 FF 90 ?? ?? ?? ?? 48 8B 0B",
+      "offsets": [],
+      "onValue": 0,
+      "onBytes": [144, 144, 144, 144, 144, 144, 144, 144],
+      "offBytes": [243, 15, 17, 129, 20, 1, 0, 0]
+    },
+    {
+      "id": "skyrim-one-hit-kill",
+      "name": "One-Hit Kill",
+      "type": "patch",
+      "module": "SkyrimSE.exe",
+      "signature": "F3 0F 11 81 54 01 00 00",
+      "offsets": [],
+      "onValue": 0,
+      "onBytes": [15, 87, 192, 243, 15, 17, 129, 84, 1, 0, 0],
+      "offBytes": [243, 15, 17, 129, 84, 1, 0, 0]
+    },
+    {
+      "id": "skyrim-gold-aob",
+      "name": "Gold (AOB Scan)",
+      "type": "action",
+      "valueType": "int",
+      "module": "SkyrimSE.exe",
+      "signature": "48 8B 05 ?? ?? ?? ?? 48 8B D1 48 8B 00 48 85 C0",
+      "offsets": ["0x10"],
+      "onValue": 50000
+    }
+  ]
+}

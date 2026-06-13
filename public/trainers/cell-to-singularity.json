@@ -5,6 +5,20 @@
     {
       "id": "cts-darwinium",
       "name": "Darwinium",
+      "type": "mono",
+      "valueType": "double",
+      "module": "mono-2.0-bdwgc.dll",
+      "monoAssembly": "Assembly-CSharp",
+      "monoNamespace": "",
+      "monoClass": "???",
+      "monoField": "???",
+      "monoStatic": true,
+      "offsets": [],
+      "onValue": 1000
+    },
+    {
+      "id": "cts-darwinium-scan",
+      "name": "Darwinium (scan fallback)",
       "type": "scan",
       "valueType": "double",
       "module": "",

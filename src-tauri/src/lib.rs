@@ -1,4 +1,5 @@
 mod engine;
+mod mono;
 mod scanner;
 
 #[tauri::command]
@@ -114,6 +115,24 @@ fn scan_value(pid: u32, value_type: String, value: f64) -> Result<Vec<String>, S
 }
 
 #[tauri::command]
+fn resolve_mono_field(
+    pid: u32,
+    module_name: String,
+    assembly: String,
+    namespace: String,
+    class_name: String,
+    field_name: String,
+    is_static: bool,
+) -> Result<String, String> {
+    let (mono_base, _) = engine::get_module_info(pid, &module_name)
+        .ok_or_else(|| format!("Module '{}' not found in process", module_name))?;
+    let addr = mono::resolve_mono_field(
+        pid, mono_base, &assembly, &namespace, &class_name, &field_name, is_static,
+    )?;
+    Ok(format!("0x{:X}", addr))
+}
+
+#[tauri::command]
 fn patch_bytes(pid: u32, address: String, bytes: Vec<u8>) -> Result<(), String> {
     let addr = parse_addr(&address)?;
     engine::patch_memory(pid, addr as usize, &bytes)
@@ -136,7 +155,8 @@ pub fn run() {
             write_float,
             write_double,
             scan_value,
-            patch_bytes
+            patch_bytes,
+            resolve_mono_field
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

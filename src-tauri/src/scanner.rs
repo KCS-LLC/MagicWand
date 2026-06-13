@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use std::fs;
+#[cfg(target_os = "windows")]
+use winreg::{enums::*, RegKey};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DetectedGame {
@@ -9,9 +11,38 @@ pub struct DetectedGame {
     pub store: String,
 }
 
+#[cfg(target_os = "windows")]
+fn find_steam_path() -> Option<PathBuf> {
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let subkeys = [
+        r"SOFTWARE\Valve\Steam",
+        r"SOFTWARE\WOW6432Node\Valve\Steam",
+    ];
+    for subkey in &subkeys {
+        if let Ok(key) = hklm.open_subkey(subkey) {
+            if let Ok(path) = key.get_value::<String, _>("InstallPath") {
+                let pb = PathBuf::from(path);
+                if pb.exists() {
+                    return Some(pb);
+                }
+            }
+        }
+    }
+    let default = PathBuf::from(r"C:\Program Files (x86)\Steam");
+    if default.exists() { Some(default) } else { None }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn find_steam_path() -> Option<PathBuf> {
+    None
+}
+
 pub fn scan_steam() -> Vec<DetectedGame> {
     let mut games = Vec::new();
-    let steam_path = PathBuf::from("C:\\Program Files (x86)\\Steam");
+    let steam_path = match find_steam_path() {
+        Some(p) => p,
+        None => return games,
+    };
     let library_vdf = steam_path.join("steamapps\\libraryfolders.vdf");
     
     if !library_vdf.exists() {

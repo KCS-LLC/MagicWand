@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTrainer } from "./hooks/useTrainer";
+import { CommunityPage } from "./pages/CommunityPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import "./App.css";
 
 interface DetectedGame {
@@ -9,11 +11,15 @@ interface DetectedGame {
   store: string;
 }
 
+type Page = 'library' | 'community' | 'settings';
+
 function App() {
   const [detectedGames, setDetectedGames] = useState<DetectedGame[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
-  const { activeGame, trainers, selectGame, toggleCheat, pid } = useTrainer();
+  const [currentPage, setCurrentPage] = useState<Page>('library');
+  const [customValues, setCustomValues] = useState<Record<string, string>>({});
+  const { activeGame, trainers, selectGame, applyCheat, pid, pollInterval, setPollInterval } = useTrainer();
 
   useEffect(() => {
     async function fetchGames() {
@@ -30,7 +36,7 @@ function App() {
   }, []);
 
   const handleGameClick = (game: DetectedGame) => {
-    const trainer = trainers.find(t => 
+    const trainer = trainers.find(t =>
       t.executable.toLowerCase() === (game.name + ".exe").toLowerCase() ||
       t.executable.toLowerCase() === game.name.toLowerCase() ||
       t.name.toLowerCase() === game.name.toLowerCase()
@@ -39,9 +45,13 @@ function App() {
     if (trainer) {
       selectGame(trainer);
     } else {
-      // Fallback for demo/testing
       if (trainers.length > 0) selectGame(trainers[0]);
     }
+  };
+
+  const navTo = (page: Page) => {
+    selectGame(null);
+    setCurrentPage(page);
   };
 
   return (
@@ -49,22 +59,35 @@ function App() {
       <aside className="sidebar">
         <div className="logo"><span>✨</span> Magic Wand</div>
         <nav>
-          <div className={`nav-item ${!activeGame ? 'active' : ''}`} onClick={() => selectGame(null)}>
+          <div
+            className={`nav-item ${currentPage === 'library' && !activeGame ? 'active' : ''}`}
+            onClick={() => navTo('library')}
+          >
             Library
           </div>
-          <div className="nav-item">Community</div>
-          <div className="nav-item">Settings</div>
+          <div
+            className={`nav-item ${currentPage === 'community' && !activeGame ? 'active' : ''}`}
+            onClick={() => navTo('community')}
+          >
+            Community
+          </div>
+          <div
+            className={`nav-item ${currentPage === 'settings' && !activeGame ? 'active' : ''}`}
+            onClick={() => navTo('settings')}
+          >
+            Settings
+          </div>
         </nav>
       </aside>
 
       <main className="main-content">
         {activeGame ? (
           <div className="trainer-dashboard">
-            <button className="back-button" onClick={() => selectGame(null)}>← Back to Library</button>
+            <button className="back-button" onClick={() => selectGame(null)}>← Back</button>
             <div className="trainer-header">
               <h1>{activeGame.name}</h1>
               <span className={`status-badge ${pid ? 'status-online' : 'status-offline'}`}>
-                 {pid ? `CONNECTED (PID: ${pid})` : 'WAITING FOR GAME...'}
+                {pid ? `CONNECTED (PID: ${pid})` : 'WAITING FOR GAME...'}
               </span>
             </div>
 
@@ -72,32 +95,63 @@ function App() {
               {activeGame.cheats.map((cheat) => (
                 <div className="cheat-item" key={cheat.id}>
                   <div className="cheat-info">
-                    <span className="cheat-name">{cheat.name}</span>
+                    <div className="cheat-name-row">
+                      <span className="cheat-name">{cheat.name}</span>
+                      <span className={`cheat-type-badge cheat-type-${cheat.type}`}>{cheat.type}</span>
+                    </div>
                     <span className="live-value">
-                      {cheat.currentValue !== undefined ? `Value: ${typeof cheat.currentValue === 'number' ? cheat.currentValue.toFixed(2) : cheat.currentValue}` : 'Detecting...'}
+                      {cheat.currentValue !== undefined
+                        ? `Value: ${typeof cheat.currentValue === 'number' ? cheat.currentValue.toFixed(2) : cheat.currentValue}`
+                        : 'Detecting...'}
                     </span>
                   </div>
-                  <label className="switch">
-                    <input 
-                      type="checkbox" 
-                      checked={cheat.active || false} 
-                      onChange={() => toggleCheat(cheat)}
+
+                  {cheat.type !== 'patch' && cheat.valueType && (
+                    <input
+                      className="value-input"
+                      type="number"
+                      placeholder={String(cheat.onValue)}
+                      value={customValues[cheat.id] ?? ''}
+                      onChange={e => setCustomValues(prev => ({ ...prev, [cheat.id]: e.target.value }))}
                       disabled={!pid}
                     />
-                    <span className="slider"></span>
-                  </label>
+                  )}
+
+                  {cheat.type === 'action' ? (
+                    <button
+                      className="fire-button"
+                      onClick={() => applyCheat(cheat, customValues[cheat.id])}
+                      disabled={!pid}
+                    >
+                      Fire
+                    </button>
+                  ) : (
+                    <label className="switch">
+                      <input
+                        type="checkbox"
+                        checked={cheat.active || false}
+                        onChange={() => applyCheat(cheat, customValues[cheat.id])}
+                        disabled={!pid}
+                      />
+                      <span className="slider"></span>
+                    </label>
+                  )}
                 </div>
               ))}
             </div>
           </div>
+        ) : currentPage === 'community' ? (
+          <CommunityPage />
+        ) : currentPage === 'settings' ? (
+          <SettingsPage pollInterval={pollInterval} onPollIntervalChange={setPollInterval} />
         ) : (
           <div className="library-view">
             <header className="header">
               <h1>My Games</h1>
-              <input 
-                type="text" 
-                className="search-bar" 
-                placeholder="Search library..." 
+              <input
+                type="text"
+                className="search-bar"
+                placeholder="Search library..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />

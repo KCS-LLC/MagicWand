@@ -1,9 +1,11 @@
 interface SettingsPageProps {
   pollInterval: number;
   onPollIntervalChange: (value: number) => void;
+  scanMode: boolean;
+  onScanModeChange: (value: boolean) => void;
 }
 
-export function SettingsPage({ pollInterval, onPollIntervalChange }: SettingsPageProps) {
+export function SettingsPage({ pollInterval, onPollIntervalChange, scanMode, onScanModeChange }: SettingsPageProps) {
   return (
     <div className="page-view">
       <header className="header">
@@ -27,6 +29,20 @@ export function SettingsPage({ pollInterval, onPollIntervalChange }: SettingsPag
 
       <section className="settings-section">
         <h2>Trainers</h2>
+        <div className="setting-row">
+          <label>Scan Mode</label>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={scanMode}
+              onChange={e => onScanModeChange(e.target.checked)}
+            />
+            <span className="slider"></span>
+          </label>
+        </div>
+        <p className="setting-hint">
+          Show manual memory scan cheats. Useful as a fallback when automatic address resolution isn't available for a game.
+        </p>
         <div className="setting-row">
           <label>Custom trainer folder</label>
           <span className="setting-value">public/trainers/</span>

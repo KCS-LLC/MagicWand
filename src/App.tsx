@@ -27,6 +27,7 @@ function App() {
   const [scanStates, setScanStates] = useState<Record<string, ScanState>>({});
   const [scanInputs, setScanInputs] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState<Page>('library');
+  const [scanMode, setScanMode] = useState(false);
   const { activeGame, trainers, selectGame, applyCheat, pid, pollInterval, setPollInterval } = useTrainer();
 
   const navTo = (page: Page) => {
@@ -140,7 +141,7 @@ function App() {
             </div>
 
             <div className="cheat-list">
-              {activeGame.cheats.map((cheat) => (
+              {activeGame.cheats.filter(c => c.type !== 'scan' || scanMode).map((cheat) => (
                 <div className="cheat-item" key={cheat.id}>
                   <div className="cheat-info">
                     <div className="cheat-name-row">
@@ -237,7 +238,7 @@ function App() {
         ) : currentPage === 'community' ? (
           <CommunityPage />
         ) : currentPage === 'settings' ? (
-          <SettingsPage pollInterval={pollInterval} onPollIntervalChange={setPollInterval} />
+          <SettingsPage pollInterval={pollInterval} onPollIntervalChange={setPollInterval} scanMode={scanMode} onScanModeChange={setScanMode} />
         ) : (
           <div className="library-view">
             <header className="header">

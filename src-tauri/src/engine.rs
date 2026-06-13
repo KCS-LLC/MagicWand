@@ -136,7 +136,77 @@ pub fn resolve_pointer_path(pid: u32, base_address: usize, offsets: &[usize]) ->
     Ok(current_address)
 }
 
-use windows::Win32::System::Memory::{VirtualProtectEx, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS};
+use windows::Win32::System::Memory::{
+    VirtualProtectEx, VirtualQueryEx,
+    PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
+    MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS, PAGE_GUARD,
+};
+
+pub fn scan_memory_for_bytes(pid: u32, needle: &[u8]) -> Result<Vec<usize>, String> {
+    unsafe {
+        let handle = OpenProcess(PROCESS_ALL_ACCESS, false, pid)
+            .map_err(|e| format!("Failed to open process: {}", e))?;
+
+        let mut results = Vec::new();
+        let mut address: usize = 0;
+
+        loop {
+            let mut mbi = MEMORY_BASIC_INFORMATION::default();
+            let ret = VirtualQueryEx(
+                handle,
+                Some(address as *const _),
+                &mut mbi,
+                std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+            );
+            if ret == 0 { break; }
+
+            let next = mbi.BaseAddress as usize + mbi.RegionSize;
+
+            let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
+            let is_committed = mbi.State == MEM_COMMIT;
+            let is_readable = (mbi.Protect.0 & unreadable) == 0;
+
+            if is_committed && is_readable && mbi.RegionSize <= 512 * 1024 * 1024 {
+                if let Ok(data) = read_memory(pid, mbi.BaseAddress as usize, mbi.RegionSize) {
+                    for i in 0..data.len().saturating_sub(needle.len()) {
+                        if data[i..i + needle.len()] == *needle {
+                            results.push(mbi.BaseAddress as usize + i);
+                        }
+                    }
+                }
+            }
+
+            address = next;
+            if address == 0 { break; }
+        }
+
+        let _ = CloseHandle(handle);
+        Ok(results)
+    }
+}
+
+pub fn scan_for_int(pid: u32, value: i32) -> Result<Vec<usize>, String> {
+    scan_memory_for_bytes(pid, &value.to_le_bytes())
+}
+
+pub fn scan_for_float(pid: u32, value: f32) -> Result<Vec<usize>, String> {
+    scan_memory_for_bytes(pid, &value.to_le_bytes())
+}
+
+pub fn scan_for_double(pid: u32, value: f64) -> Result<Vec<usize>, String> {
+    scan_memory_for_bytes(pid, &value.to_le_bytes())
+}
+
+pub fn read_double(pid: u32, address: usize) -> Result<f64, String> {
+    let data = read_memory(pid, address, 8)?;
+    data.try_into()
+        .map(f64::from_le_bytes)
+        .map_err(|_| "Failed to read 8 bytes for double".to_string())
+}
+
+pub fn write_double(pid: u32, address: usize, value: f64) -> Result<(), String> {
+    write_memory(pid, address, &value.to_le_bytes())
+}
 
 pub fn write_memory(pid: u32, address: usize, data: &[u8]) -> Result<(), String> {
     unsafe {

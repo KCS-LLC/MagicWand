@@ -91,6 +91,29 @@ fn write_float(pid: u32, address: String, value: f32) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn read_double(pid: u32, address: String) -> Result<f64, String> {
+    let addr = parse_addr(&address)?;
+    engine::read_double(pid, addr as usize)
+}
+
+#[tauri::command]
+fn write_double(pid: u32, address: String, value: f64) -> Result<(), String> {
+    let addr = parse_addr(&address)?;
+    engine::write_double(pid, addr as usize, value)
+}
+
+#[tauri::command]
+fn scan_value(pid: u32, value_type: String, value: f64) -> Result<Vec<String>, String> {
+    let addresses = match value_type.as_str() {
+        "double" => engine::scan_for_double(pid, value)?,
+        "float"  => engine::scan_for_float(pid, value as f32)?,
+        "int"    => engine::scan_for_int(pid, value as i32)?,
+        _        => return Err(format!("Unknown value type: {}", value_type)),
+    };
+    Ok(addresses.iter().map(|a| format!("0x{:X}", a)).collect())
+}
+
+#[tauri::command]
 fn patch_bytes(pid: u32, address: String, bytes: Vec<u8>) -> Result<(), String> {
     let addr = parse_addr(&address)?;
     engine::patch_memory(pid, addr as usize, &bytes)
@@ -108,8 +131,11 @@ pub fn run() {
             resolve_pointer,
             read_int,
             read_float,
+            read_double,
             write_int,
             write_float,
+            write_double,
+            scan_value,
             patch_bytes
         ])
         .run(tauri::generate_context!())

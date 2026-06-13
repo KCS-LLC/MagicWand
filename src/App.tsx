@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useTrainer } from "./hooks/useTrainer";
+import { useTrainer, Cheat } from "./hooks/useTrainer";
 import { CommunityPage } from "./pages/CommunityPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import "./App.css";
@@ -13,17 +13,64 @@ interface DetectedGame {
   store: string;
 }
 
+interface ScanState {
+  status: 'idle' | 'scanning' | 'found' | 'multiple' | 'not_found';
+  addresses: string[];
+  cachedAddress?: string;
+}
+
 function App() {
   const [detectedGames, setDetectedGames] = useState<DetectedGame[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
+  const [scanStates, setScanStates] = useState<Record<string, ScanState>>({});
+  const [scanInputs, setScanInputs] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState<Page>('library');
   const { activeGame, trainers, selectGame, applyCheat, pid, pollInterval, setPollInterval } = useTrainer();
 
   const navTo = (page: Page) => {
+    setScanStates({});
+    setScanInputs({});
     selectGame(null);
     setCurrentPage(page);
+  };
+
+  const handleScan = async (cheat: Cheat) => {
+    if (!pid) return;
+    const currentValueStr = scanInputs[cheat.id];
+    if (!currentValueStr) return;
+    const value = cheat.valueType === 'int'
+      ? parseInt(currentValueStr, 10)
+      : parseFloat(currentValueStr);
+    if (isNaN(value)) return;
+    setScanStates(prev => ({ ...prev, [cheat.id]: { status: 'scanning', addresses: [] } }));
+    try {
+      const addresses = await invoke<string[]>('scan_value', {
+        pid,
+        valueType: cheat.valueType ?? 'int',
+        value,
+      });
+      if (addresses.length === 0) {
+        setScanStates(prev => ({ ...prev, [cheat.id]: { status: 'not_found', addresses: [] } }));
+      } else if (addresses.length === 1) {
+        setScanStates(prev => ({ ...prev, [cheat.id]: { status: 'found', addresses, cachedAddress: addresses[0] } }));
+      } else {
+        setScanStates(prev => ({ ...prev, [cheat.id]: { status: 'multiple', addresses } }));
+      }
+    } catch {
+      setScanStates(prev => ({ ...prev, [cheat.id]: { status: 'not_found', addresses: [] } }));
+    }
+  };
+
+  const handleScanWrite = async (cheat: Cheat) => {
+    if (!pid) return;
+    const state = scanStates[cheat.id];
+    if (!state?.cachedAddress) return;
+    const cmd = cheat.valueType === 'double' ? 'write_double'
+              : cheat.valueType === 'float'  ? 'write_float'
+              : 'write_int';
+    await invoke(cmd, { pid, address: state.cachedAddress, value: cheat.onValue });
   };
 
   useEffect(() => {
@@ -41,16 +88,16 @@ function App() {
   }, []);
 
   const handleGameClick = (game: DetectedGame) => {
-    const trainer = trainers.find(t => 
+    const trainer = trainers.find(t =>
       t.executable.toLowerCase() === (game.name + ".exe").toLowerCase() ||
       t.executable.toLowerCase() === game.name.toLowerCase() ||
       t.name.toLowerCase() === game.name.toLowerCase()
     );
-
+    setScanStates({});
+    setScanInputs({});
     if (trainer) {
       selectGame(trainer);
     } else {
-      // Fallback for demo/testing
       if (trainers.length > 0) selectGame(trainers[0]);
     }
   };
@@ -84,11 +131,11 @@ function App() {
       <main className="main-content">
         {activeGame ? (
           <div className="trainer-dashboard">
-            <button className="back-button" onClick={() => selectGame(null)}>← Back</button>
+            <button className="back-button" onClick={() => { setScanStates({}); setScanInputs({}); selectGame(null); }}>← Back</button>
             <div className="trainer-header">
               <h1>{activeGame.name}</h1>
               <span className={`status-badge ${pid ? 'status-online' : 'status-offline'}`}>
-                 {pid ? `CONNECTED (PID: ${pid})` : 'WAITING FOR GAME...'}
+                {pid ? `CONNECTED (PID: ${pid})` : 'WAITING FOR GAME...'}
               </span>
             </div>
 
@@ -100,38 +147,80 @@ function App() {
                       <span className="cheat-name">{cheat.name}</span>
                       <span className={`cheat-type-badge cheat-type-${cheat.type}`}>{cheat.type}</span>
                     </div>
-                    <span className="live-value">
-                      {cheat.currentValue !== undefined ? `Value: ${typeof cheat.currentValue === 'number' ? cheat.currentValue.toFixed(2) : cheat.currentValue}` : 'Detecting...'}
-                    </span>
+                    {cheat.type !== 'scan' && (
+                      <span className="live-value">
+                        {cheat.currentValue !== undefined ? `Value: ${typeof cheat.currentValue === 'number' ? cheat.currentValue.toFixed(2) : cheat.currentValue}` : 'Detecting...'}
+                      </span>
+                    )}
                   </div>
-                  {(cheat.type === 'toggle' || cheat.type === 'action') && cheat.valueType && (
-                    <input
-                      className="value-input"
-                      type="number"
-                      placeholder={String(cheat.onValue)}
-                      value={customValues[cheat.id] ?? ''}
-                      onChange={e => setCustomValues(prev => ({ ...prev, [cheat.id]: e.target.value }))}
-                      disabled={!pid}
-                    />
-                  )}
-                  {cheat.type === 'action' ? (
-                    <button
-                      className="fire-button"
-                      onClick={() => applyCheat(cheat, customValues[cheat.id])}
-                      disabled={!pid}
-                    >
-                      Fire
-                    </button>
+                  {cheat.type === 'scan' ? (
+                    <div className="scan-cheat">
+                      <div className="scan-row">
+                        <input
+                          className="value-input"
+                          type="number"
+                          placeholder="Current value in game"
+                          value={scanInputs[cheat.id] ?? ''}
+                          onChange={e => setScanInputs(prev => ({ ...prev, [cheat.id]: e.target.value }))}
+                          disabled={!pid || scanStates[cheat.id]?.status === 'scanning'}
+                        />
+                        <button
+                          className="fire-button"
+                          onClick={() => handleScan(cheat)}
+                          disabled={!pid || !scanInputs[cheat.id]}
+                        >
+                          {scanStates[cheat.id]?.status === 'scanning' ? 'Scanning...' : 'Scan'}
+                        </button>
+                      </div>
+                      {scanStates[cheat.id]?.status === 'found' && (
+                        <div className="scan-result found">
+                          ✓ Found.
+                          <button className="fire-button" onClick={() => handleScanWrite(cheat)}>
+                            Set to {cheat.onValue}
+                          </button>
+                        </div>
+                      )}
+                      {scanStates[cheat.id]?.status === 'multiple' && (
+                        <div className="scan-result multiple">
+                          {scanStates[cheat.id].addresses.length} matches — change the value in-game then scan again
+                        </div>
+                      )}
+                      {scanStates[cheat.id]?.status === 'not_found' && (
+                        <div className="scan-result not-found">Not found — check the value and try again</div>
+                      )}
+                    </div>
                   ) : (
-                    <label className="switch">
-                      <input
-                        type="checkbox"
-                        checked={cheat.active || false}
-                        onChange={() => applyCheat(cheat, customValues[cheat.id])}
-                        disabled={!pid}
-                      />
-                      <span className="slider"></span>
-                    </label>
+                    <>
+                      {(cheat.type === 'toggle' || cheat.type === 'action') && cheat.valueType && (
+                        <input
+                          className="value-input"
+                          type="number"
+                          placeholder={String(cheat.onValue)}
+                          value={customValues[cheat.id] ?? ''}
+                          onChange={e => setCustomValues(prev => ({ ...prev, [cheat.id]: e.target.value }))}
+                          disabled={!pid}
+                        />
+                      )}
+                      {cheat.type === 'action' ? (
+                        <button
+                          className="fire-button"
+                          onClick={() => applyCheat(cheat, customValues[cheat.id])}
+                          disabled={!pid}
+                        >
+                          Fire
+                        </button>
+                      ) : (
+                        <label className="switch">
+                          <input
+                            type="checkbox"
+                            checked={cheat.active || false}
+                            onChange={() => applyCheat(cheat, customValues[cheat.id])}
+                            disabled={!pid}
+                          />
+                          <span className="slider"></span>
+                        </label>
+                      )}
+                    </>
                   )}
                 </div>
               ))}

@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 export interface Cheat {
   id: string;
   name: string;
-  type: 'toggle' | 'action' | 'patch' | 'scan';
+  type: 'toggle' | 'action' | 'patch' | 'scan' | 'mono';
   valueType?: 'int' | 'float' | 'double';
   module: string;
   base?: string;
@@ -13,6 +13,11 @@ export interface Cheat {
   onValue: number;
   onBytes?: number[];
   offBytes?: number[];
+  monoAssembly?: string;
+  monoNamespace?: string;
+  monoClass?: string;
+  monoField?: string;
+  monoStatic?: boolean;
   active?: boolean;
   currentValue?: string | number;
 }
@@ -62,24 +67,38 @@ export function useTrainer() {
     if (!pidRef.current) throw new Error('Not connected');
     if (addressCache.current[cheat.id]) return addressCache.current[cheat.id];
 
-    let baseAddrStr: string;
-    if (cheat.signature) {
-      const found = await invoke<string>('aob_scan', { pid: pidRef.current, moduleName: cheat.module, pattern: cheat.signature });
-      baseAddrStr = "0x" + (BigInt(found) + BigInt(cheat.base || "0")).toString(16);
-    } else if (cheat.base) {
+    let finalAddr: string;
+
+    if (cheat.type === 'mono') {
+      finalAddr = await invoke<string>('resolve_mono_field', {
+        pid: pidRef.current,
+        moduleName: cheat.module,
+        assembly: cheat.monoAssembly ?? 'Assembly-CSharp',
+        namespace: cheat.monoNamespace ?? '',
+        className: cheat.monoClass ?? '',
+        fieldName: cheat.monoField ?? '',
+        isStatic: cheat.monoStatic ?? true,
+      });
+    } else {
+      let baseAddrStr: string;
+      if (cheat.signature) {
+        const found = await invoke<string>('aob_scan', { pid: pidRef.current, moduleName: cheat.module, pattern: cheat.signature });
+        baseAddrStr = "0x" + (BigInt(found) + BigInt(cheat.base || "0")).toString(16);
+      } else if (cheat.base) {
+        const modBase = await getModuleBaseRaw(cheat.module);
+        baseAddrStr = "0x" + (BigInt(modBase) + BigInt(cheat.base)).toString(16);
+      } else { throw new Error('Invalid cheat config'); }
+
       const modBase = await getModuleBaseRaw(cheat.module);
-      baseAddrStr = "0x" + (BigInt(modBase) + BigInt(cheat.base)).toString(16);
-    } else { throw new Error('Invalid config'); }
+      const relativeOffset = "0x" + (BigInt(baseAddrStr) - BigInt(modBase)).toString(16);
 
-    const modBase = await getModuleBaseRaw(cheat.module);
-    const relativeOffset = "0x" + (BigInt(baseAddrStr) - BigInt(modBase)).toString(16);
-
-    const finalAddr = await invoke<string>('resolve_pointer', {
-      pid: pidRef.current,
-      moduleName: cheat.module,
-      baseOffset: relativeOffset,
-      offsets: cheat.offsets
-    });
+      finalAddr = await invoke<string>('resolve_pointer', {
+        pid: pidRef.current,
+        moduleName: cheat.module,
+        baseOffset: relativeOffset,
+        offsets: cheat.offsets
+      });
+    }
 
     addressCache.current[cheat.id] = finalAddr;
     return finalAddr;
@@ -136,7 +155,7 @@ export function useTrainer() {
   const applyCheat = async (cheat: Cheat, customValueStr?: string) => {
     if (!pid || !activeGame) return;
 
-    if (cheat.type === 'action') {
+    if (cheat.type === 'action' || cheat.type === 'mono') {
       try {
         const addr = await resolveCheatAddress(cheat);
         const hexAddr = "0x" + BigInt(addr).toString(16);

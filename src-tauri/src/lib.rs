@@ -79,6 +79,12 @@ fn read_float(pid: u32, address: String) -> Result<f32, String> {
 }
 
 #[tauri::command]
+fn read_double(pid: u32, address: String) -> Result<f64, String> {
+    let addr = parse_addr(&address)?;
+    engine::read_double(pid, addr as usize)
+}
+
+#[tauri::command]
 fn write_int(pid: u32, address: String, value: i32) -> Result<(), String> {
     let addr = parse_addr(&address)?;
     engine::write_memory(pid, addr as usize, &value.to_le_bytes())
@@ -88,6 +94,12 @@ fn write_int(pid: u32, address: String, value: i32) -> Result<(), String> {
 fn write_float(pid: u32, address: String, value: f32) -> Result<(), String> {
     let addr = parse_addr(&address)?;
     engine::write_memory(pid, addr as usize, &value.to_le_bytes())
+}
+
+#[tauri::command]
+fn write_double(pid: u32, address: String, value: f64) -> Result<(), String> {
+    let addr = parse_addr(&address)?;
+    engine::write_double(pid, addr as usize, value)
 }
 
 #[tauri::command]
@@ -108,8 +120,10 @@ pub fn run() {
             resolve_pointer,
             read_int,
             read_float,
+            read_double,
             write_int,
             write_float,
+            write_double,
             patch_bytes
         ])
         .run(tauri::generate_context!())

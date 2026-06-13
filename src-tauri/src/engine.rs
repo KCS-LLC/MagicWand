@@ -163,6 +163,17 @@ pub fn write_memory(pid: u32, address: usize, data: &[u8]) -> Result<(), String>
     }
 }
 
+pub fn read_double(pid: u32, address: usize) -> Result<f64, String> {
+    let data = read_memory(pid, address, 8)?;
+    data.try_into()
+        .map(f64::from_le_bytes)
+        .map_err(|_| "Failed to read 8 bytes for double".to_string())
+}
+
+pub fn write_double(pid: u32, address: usize, value: f64) -> Result<(), String> {
+    write_memory(pid, address, &value.to_le_bytes())
+}
+
 pub fn patch_memory(pid: u32, address: usize, data: &[u8]) -> Result<(), String> {
     unsafe {
         let handle = OpenProcess(PROCESS_ALL_ACCESS, false, pid)

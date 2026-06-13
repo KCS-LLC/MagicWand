@@ -5,7 +5,7 @@ export interface Cheat {
   id: string;
   name: string;
   type: 'toggle' | 'action' | 'patch';
-  valueType?: 'int' | 'float';
+  valueType?: 'int' | 'float' | 'double';
   module: string;
   base?: string;
   signature?: string;
@@ -167,7 +167,7 @@ export function useTrainer() {
         const results = await Promise.all(currentActive.cheats.map(async (cheat) => {
           try {
             const addr = await resolveCheatAddress(cheat);
-            const cmd = cheat.valueType === 'float' ? 'read_float' : 'read_int';
+            const cmd = cheat.valueType === 'double' ? 'read_double' : cheat.valueType === 'float' ? 'read_float' : 'read_int';
             // Final address is decimal from Rust, convert to 0xHex for safety if needed
             const hexAddr = "0x" + BigInt(addr).toString(16);
             const val = await invoke<number>(cmd, { pid: pidRef.current, address: hexAddr });
@@ -209,7 +209,7 @@ export function useTrainer() {
         const bytes = !cheat.active ? cheat.onBytes : cheat.offBytes;
         await invoke('patch_bytes', { pid, address: hexAddr, bytes });
       } else {
-        const cmd = cheat.valueType === 'float' ? 'write_float' : 'write_int';
+        const cmd = cheat.valueType === 'double' ? 'write_double' : cheat.valueType === 'float' ? 'write_float' : 'write_int';
         await invoke(cmd, { pid, address: hexAddr, value: cheat.onValue });
       }
     } catch (err) {

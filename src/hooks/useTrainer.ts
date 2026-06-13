@@ -122,7 +122,17 @@ export function useTrainer() {
     } catch (err) { console.error('HOOK: find_game failed:', err); }
   }, []);
 
-  const toggleCheat = async (cheat: Cheat) => {
+  function resolveWriteValue(cheat: Cheat, customValueStr?: string): number {
+    if (customValueStr !== undefined && customValueStr !== '') {
+      const parsed = cheat.valueType === 'float'
+        ? parseFloat(customValueStr)
+        : parseInt(customValueStr, 10);
+      if (!isNaN(parsed)) return parsed;
+    }
+    return cheat.onValue;
+  }
+
+  const toggleCheat = async (cheat: Cheat, customValueStr?: string) => {
     if (!pid || !activeGame) return;
     setActiveGame(prev => {
       if (!prev) return null;
@@ -135,8 +145,9 @@ export function useTrainer() {
         const bytes = !cheat.active ? cheat.onBytes : cheat.offBytes;
         await invoke('patch_bytes', { pid, address: hexAddr, bytes });
       } else {
+        const writeValue = resolveWriteValue(cheat, customValueStr);
         const cmd = cheat.valueType === 'float' ? 'write_float' : 'write_int';
-        await invoke(cmd, { pid, address: hexAddr, value: cheat.onValue });
+        await invoke(cmd, { pid, address: hexAddr, value: writeValue });
       }
     } catch (err) {
       setActiveGame(prev => {

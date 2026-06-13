@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTrainer, Cheat } from "./hooks/useTrainer";
+import { useSettings } from "./hooks/useSettings";
 import { CommunityPage } from "./pages/CommunityPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import "./App.css";
@@ -27,8 +29,16 @@ function App() {
   const [scanStates, setScanStates] = useState<Record<string, ScanState>>({});
   const [scanInputs, setScanInputs] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState<Page>('library');
-  const [scanMode, setScanMode] = useState(false);
-  const { activeGame, trainers, selectGame, applyCheat, pid, pollInterval, setPollInterval } = useTrainer();
+  const { pollInterval, setPollInterval, scanMode, setScanMode, alwaysOnTop: storedAlwaysOnTop, loaded } = useSettings();
+  const { activeGame, trainers, selectGame, applyCheat, pid } = useTrainer(pollInterval);
+
+  useEffect(() => {
+    if (loaded && storedAlwaysOnTop) {
+      getCurrentWindow().setAlwaysOnTop(true);
+    }
+  }, [loaded]);
+
+  if (!loaded) return null;
 
   const navTo = (page: Page) => {
     setScanStates({});

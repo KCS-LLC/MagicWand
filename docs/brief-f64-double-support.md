@@ -1,160 +1,140 @@
-# Brief: Add f64 (Double) Read/Write Support
+# Brief: f64 (Double-Precision Float) Support
 
 ## Status
-Unimplemented — engine only supports f32 (float) and i32 (int).
+Unimplemented — the engine only reads and writes `f32` (4-byte single-precision floats). Games that store values as `f64` (8-byte doubles) cannot be targeted.
 
 ## Problem
-Some games (including Cell to Singularity) store numeric values as 64-bit doubles (`f64`) rather than 32-bit floats (`f32`) or 32-bit integers (`i32`). Writing a 32-bit value to a double address corrupts the adjacent 4 bytes of memory, which can crash the game or produce garbage values. There is currently no way to correctly read or write double-precision values in Magic Wand.
+`read_float` and `write_float` in `src-tauri/src/lib.rs` both operate on 4 bytes and interpret them as `f32`. Some games — particularly those built on 64-bit engines or using physics-accurate simulations — store health, position, speed, and other actor values as `f64`. Targeting those addresses with `f32` reads/writes produces garbage values or crashes.
+
+The `Cheat` interface in `useTrainer.ts` already has `valueType: 'int' | 'float'` but no way to distinguish `f32` from `f64`, so trainer authors have no way to opt into double precision even if the backend supported it.
 
 ## Goal
-Add `read_double` and `write_double` Tauri commands to the Rust backend, and wire up `'double'` as a valid `valueType` throughout the TypeScript layer so trainer JSON files can target double-precision memory values.
+- Add `read_double` and `write_double` Tauri commands that read/write 8 bytes as `f64`
+- Extend `valueType` in the `Cheat` interface to include `'double'`
+- Wire the frontend hook to dispatch `read_double`/`write_double` when `valueType === 'double'`
+- No changes to existing `f32` behavior — this is purely additive
 
-## Scope
-This is a contained, additive change. No existing commands are modified — only new ones are added. The change touches four locations:
+## Relevant Files
+- `src-tauri/src/lib.rs` — `read_float`, `write_float`, `invoke_handler` registration
+- `src/hooks/useTrainer.ts` — `Cheat` interface, `resolveCheatAddress`, polling loop, `applyCheat`
+- `public/trainers/skyrim-se.json` / `public/trainers/dummy-game.json` — no changes needed; `'float'` stays `f32`
 
-1. `src-tauri/src/engine.rs` — two new public functions
-2. `src-tauri/src/lib.rs` — two new Tauri command wrappers + registration
-3. `src/hooks/useTrainer.ts` — `valueType` union, poll loop, write dispatch
-4. Trainer JSON files (when authored) — use `"valueType": "double"`
+## Implementation Plan
 
----
-
-## Implementation
-
-### 1. `src-tauri/src/engine.rs`
-
-Add after the existing `write_memory` function. No other changes to this file.
-
-```rust
-pub fn read_double(pid: u32, address: usize) -> Result<f64, String> {
-    let data = read_memory(pid, address, 8)?;
-    data.try_into()
-        .map(f64::from_le_bytes)
-        .map_err(|_| "Failed to read 8 bytes for double".to_string())
-}
-
-pub fn write_double(pid: u32, address: usize, value: f64) -> Result<(), String> {
-    write_memory(pid, address, &value.to_le_bytes())
-}
-```
-
-> These intentionally delegate to the existing `read_memory`/`write_memory` functions so all handle/close logic stays in one place.
-
----
-
-### 2. `src-tauri/src/lib.rs`
-
-Add two new command functions alongside the existing `read_float`/`write_float` pair:
+### 1. Add Tauri commands in `lib.rs`
 
 ```rust
 #[tauri::command]
 fn read_double(pid: u32, address: String) -> Result<f64, String> {
     let addr = parse_addr(&address)?;
-    engine::read_double(pid, addr as usize)
+    let data = engine::read_memory(pid, addr as usize, 8)?;
+    if data.len() == 8 {
+        Ok(f64::from_le_bytes(data.try_into().unwrap()))
+    } else {
+        Err("Failed to read 8 bytes".to_string())
+    }
 }
 
 #[tauri::command]
 fn write_double(pid: u32, address: String, value: f64) -> Result<(), String> {
     let addr = parse_addr(&address)?;
-    engine::write_double(pid, addr as usize, value)
+    engine::write_memory(pid, addr as usize, &value.to_le_bytes())
 }
 ```
 
-Register them in the `invoke_handler` macro:
-
+Register both in `invoke_handler`:
 ```rust
-.invoke_handler(tauri::generate_handler![
-    scan_games,
-    find_game,
-    get_module_base,
-    aob_scan,
-    resolve_pointer,
-    read_int,
-    read_float,
-    read_double,   // ADD
-    write_int,
-    write_float,
-    write_double,  // ADD
-    patch_bytes
-])
+tauri::generate_handler![
+    // ... existing commands ...
+    read_double,
+    write_double,
+]
 ```
 
----
-
-### 3. `src/hooks/useTrainer.ts`
-
-#### 3a. Extend the `valueType` union in the `Cheat` interface (line 8)
+### 2. Extend `Cheat.valueType` in `useTrainer.ts`
 
 ```typescript
-// Before
-valueType?: 'int' | 'float';
-
-// After
-valueType?: 'int' | 'float' | 'double';
+export interface Cheat {
+  // ...
+  valueType?: 'int' | 'float' | 'double';
+  // ...
+}
 ```
 
-#### 3b. Poll loop — command selection (inside the `setInterval` callback, ~line 170)
+### 3. Update the polling loop in `useTrainer.ts`
 
+Replace the two-branch dispatch:
 ```typescript
-// Before
 const cmd = cheat.valueType === 'float' ? 'read_float' : 'read_int';
-
-// After
-const cmd =
-  cheat.valueType === 'float'  ? 'read_float'  :
-  cheat.valueType === 'double' ? 'read_double' :
-  'read_int';
 ```
-
-#### 3c. Write dispatch in `toggleCheat` / `applyCheat` (~line 210)
-
+With a three-branch dispatch:
 ```typescript
-// Before
-const cmd = cheat.valueType === 'float' ? 'write_float' : 'write_int';
-
-// After
-const cmd =
-  cheat.valueType === 'float'  ? 'write_float'  :
-  cheat.valueType === 'double' ? 'write_double' :
-  'write_int';
+function readCmd(valueType?: string) {
+  if (valueType === 'float') return 'read_float';
+  if (valueType === 'double') return 'read_double';
+  return 'read_int';
+}
+// usage:
+const val = await invoke<number>(readCmd(cheat.valueType), { pid: pidRef.current, address: hexAddr });
 ```
 
-#### 3d. Live value display formatting (`App.tsx`, ~line 77)
+### 4. Update `resolveWriteValue` / `applyCheat` in `useTrainer.ts`
 
-The existing `toFixed(2)` call handles doubles correctly since JavaScript's `number` type is already f64. No change needed here.
+Replace the write dispatch:
+```typescript
+const cmd = cheat.valueType === 'float' ? 'write_float' : 'write_int';
+```
+With:
+```typescript
+function writeCmd(valueType?: string) {
+  if (valueType === 'float') return 'write_float';
+  if (valueType === 'double') return 'write_double';
+  return 'write_int';
+}
+// usage in applyCheat (both action and toggle paths):
+const cmd = writeCmd(cheat.valueType);
+```
 
----
+Also update `resolveWriteValue` so `double` parses as float (same as `float`):
+```typescript
+function resolveWriteValue(cheat: Cheat, customValueStr?: string): number {
+  if (customValueStr !== undefined && customValueStr !== '') {
+    const parsed = (cheat.valueType === 'float' || cheat.valueType === 'double')
+      ? parseFloat(customValueStr)
+      : parseInt(customValueStr, 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+  return cheat.onValue;
+}
+```
 
-## Trainer JSON Usage
+### 5. Update the live-value display in `App.tsx` (no change needed)
 
-Once implemented, trainer files can use:
+The `toFixed(2)` display branch already covers any `number` — `f64` values come back as JavaScript `number` just like `f32`. No UI change required.
+
+## Example trainer JSON using `double`
 
 ```json
 {
-  "id": "cts-darwinium",
-  "name": "Darwinium",
-  "type": "action",
+  "id": "some-game-speed",
+  "name": "Movement Speed",
+  "type": "toggle",
   "valueType": "double",
-  "module": "CellToSingularity.exe",
-  "signature": "...",
-  "offsets": [],
-  "onValue": 9999
+  "module": "game.exe",
+  "signature": "48 8B 05 ?? ?? ?? ??",
+  "offsets": ["0x2C0"],
+  "onValue": 1.5
 }
 ```
 
-The `onValue` field is a JSON number, which JavaScript reads as a native f64. Rust receives it as `f64` from the Tauri command — no conversion needed.
-
----
-
 ## Acceptance Criteria
-- `read_double` returns the correct f64 value from a game process address
-- `write_double` writes all 8 bytes correctly without corrupting adjacent memory
-- A trainer cheat with `"valueType": "double"` polls and displays the live value
-- Toggling or firing such a cheat writes the correct value
-- Existing `float` and `int` cheats are unaffected
-- `cargo build` succeeds with no warnings on the new functions
+- `read_double` and `write_double` Tauri commands exist and operate on 8 bytes
+- `Cheat.valueType` accepts `'double'` without TypeScript errors
+- Polling and write paths dispatch `read_double`/`write_double` when `valueType === 'double'`
+- All existing `'float'` and `'int'` cheats behave identically to before
+- No new Rust warnings or TypeScript errors introduced
 
 ## Notes
-- `f64::from_le_bytes` requires `[u8; 8]` — the `.try_into()` will only fail if `read_memory` returns fewer than 8 bytes (i.e. a bad address), which surfaces as a clean error string rather than a panic.
-- JavaScript's `number` is already IEEE 754 double precision, so there is no precision loss when the value travels from Rust → JSON → TypeScript.
-- This change is safe to ship independently before any Cell to Singularity trainer JSON is authored — it adds no new UI and does not alter existing behavior.
+- JavaScript `number` is IEEE 754 double-precision, so passing an `f64` from Rust back to JS loses no precision beyond what JS already represents. No special handling needed on the frontend.
+- The `engine::read_memory` and `engine::write_memory` functions are byte-level and already support arbitrary lengths — no engine changes needed.
+- `f32` stays as `'float'` in the trainer schema; do not rename or migrate existing trainer JSON files.

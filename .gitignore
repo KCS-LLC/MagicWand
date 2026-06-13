@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Local cheat table research files — never commit
+CT-Copy/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

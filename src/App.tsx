@@ -14,7 +14,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
-  const { activeGame, trainers, selectGame, toggleCheat, pid } = useTrainer();
+  const { activeGame, trainers, selectGame, applyCheat, pid } = useTrainer();
 
   useEffect(() => {
     async function fetchGames() {
@@ -73,7 +73,10 @@ function App() {
               {activeGame.cheats.map((cheat) => (
                 <div className="cheat-item" key={cheat.id}>
                   <div className="cheat-info">
-                    <span className="cheat-name">{cheat.name}</span>
+                    <div className="cheat-name-row">
+                      <span className="cheat-name">{cheat.name}</span>
+                      <span className={`cheat-type-badge cheat-type-${cheat.type}`}>{cheat.type}</span>
+                    </div>
                     <span className="live-value">
                       {cheat.currentValue !== undefined ? `Value: ${typeof cheat.currentValue === 'number' ? cheat.currentValue.toFixed(2) : cheat.currentValue}` : 'Detecting...'}
                     </span>
@@ -88,15 +91,25 @@ function App() {
                       disabled={!pid}
                     />
                   )}
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={cheat.active || false}
-                      onChange={() => toggleCheat(cheat, customValues[cheat.id])}
+                  {cheat.type === 'action' ? (
+                    <button
+                      className="fire-button"
+                      onClick={() => applyCheat(cheat, customValues[cheat.id])}
                       disabled={!pid}
-                    />
-                    <span className="slider"></span>
-                  </label>
+                    >
+                      Fire
+                    </button>
+                  ) : (
+                    <label className="switch">
+                      <input
+                        type="checkbox"
+                        checked={cheat.active || false}
+                        onChange={() => applyCheat(cheat, customValues[cheat.id])}
+                        disabled={!pid}
+                      />
+                      <span className="slider"></span>
+                    </label>
+                  )}
                 </div>
               ))}
             </div>

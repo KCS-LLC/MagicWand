@@ -132,8 +132,22 @@ export function useTrainer() {
     return cheat.onValue;
   }
 
-  const toggleCheat = async (cheat: Cheat, customValueStr?: string) => {
+  const applyCheat = async (cheat: Cheat, customValueStr?: string) => {
     if (!pid || !activeGame) return;
+
+    if (cheat.type === 'action') {
+      try {
+        const addr = await resolveCheatAddress(cheat);
+        const hexAddr = "0x" + BigInt(addr).toString(16);
+        const writeValue = resolveWriteValue(cheat, customValueStr);
+        const cmd = cheat.valueType === 'float' ? 'write_float' : 'write_int';
+        await invoke(cmd, { pid, address: hexAddr, value: writeValue });
+      } catch (err) {
+        console.error('Action cheat failed:', err);
+      }
+      return;
+    }
+
     setActiveGame(prev => {
       if (!prev) return null;
       return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: !c.active } : c) };
@@ -157,5 +171,5 @@ export function useTrainer() {
     }
   };
 
-  return { activeGame, trainers, selectGame, toggleCheat, pid };
+  return { activeGame, trainers, selectGame, applyCheat, pid };
 }

@@ -13,6 +13,7 @@ function App() {
   const [detectedGames, setDetectedGames] = useState<DetectedGame[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const { activeGame, trainers, selectGame, toggleCheat, pid } = useTrainer();
 
   useEffect(() => {
@@ -77,11 +78,21 @@ function App() {
                       {cheat.currentValue !== undefined ? `Value: ${typeof cheat.currentValue === 'number' ? cheat.currentValue.toFixed(2) : cheat.currentValue}` : 'Detecting...'}
                     </span>
                   </div>
+                  {(cheat.type === 'toggle' || cheat.type === 'action') && cheat.valueType && (
+                    <input
+                      className="value-input"
+                      type="number"
+                      placeholder={String(cheat.onValue)}
+                      value={customValues[cheat.id] ?? ''}
+                      onChange={e => setCustomValues(prev => ({ ...prev, [cheat.id]: e.target.value }))}
+                      disabled={!pid}
+                    />
+                  )}
                   <label className="switch">
-                    <input 
-                      type="checkbox" 
-                      checked={cheat.active || false} 
-                      onChange={() => toggleCheat(cheat)}
+                    <input
+                      type="checkbox"
+                      checked={cheat.active || false}
+                      onChange={() => toggleCheat(cheat, customValues[cheat.id])}
                       disabled={!pid}
                     />
                     <span className="slider"></span>

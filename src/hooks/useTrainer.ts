@@ -27,6 +27,7 @@ export function useTrainer() {
   const [activeGame, setActiveGame] = useState<GameTrainer | null>(null);
   const [pid, setPid] = useState<number | null>(null);
   const [trainers, setTrainers] = useState<GameTrainer[]>([]);
+  const [pollInterval, setPollInterval] = useState(2000);
 
   useEffect(() => {
     async function loadTrainers() {
@@ -108,9 +109,9 @@ export function useTrainer() {
           })};
         });
       } catch (e) { }
-    }, 2000);
+    }, pollInterval);
     return () => clearInterval(interval);
-  }, [pid, activeGame?.name]);
+  }, [pid, activeGame?.name, pollInterval]);
 
   const selectGame = useCallback(async (game: GameTrainer | null) => {
     addressCache.current = {};
@@ -171,5 +172,5 @@ export function useTrainer() {
     }
   };
 
-  return { activeGame, trainers, selectGame, applyCheat, pid };
+  return { activeGame, trainers, selectGame, applyCheat, pid, pollInterval, setPollInterval };
 }

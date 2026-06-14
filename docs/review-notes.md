@@ -4,9 +4,15 @@ Running log of PR review findings that need follow-up. One section per PR. Newes
 
 ---
 
-## PR #17 — `refactor: reduce duplication and improve efficiency` — CHANGES REQUESTED 2026-06-14
+## PR #17 — `refactor: reduce duplication and improve efficiency` — MERGED 2026-06-14 (db14000)
 
-Did not approve. Two compile errors block; rest of the refactor is strong and should be held.
+Author pushed `ef43d6c` fixing both blockers (Rust `ProcessRefreshKind::nothing()`, TS reverted `.includes()` to `!==` chain) and the unsafe-block warning. `cargo check` and `tsc` both clean afterward except for a pre-existing `useSettings.ts` `StoreOptions.defaults` error that exists on master too — not this PR's responsibility.
+
+Original review summary follows for the record.
+
+---
+
+### Blockers found at first review (all resolved before merge)
 
 ### Blockers (must fix)
 

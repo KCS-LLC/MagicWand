@@ -1,38 +1,57 @@
-use sysinfo::System;
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, UpdateKind};
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
-use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
-use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
+use windows::Win32::System::Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory};
+use windows::Win32::System::Memory::{
+    VirtualProtectEx, VirtualQueryEx,
+    PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
+    MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS, PAGE_GUARD,
+};
+use windows::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameW, GetModuleInformation, MODULEINFO};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_ALL_ACCESS};
 
-use windows::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameW, GetModuleInformation, MODULEINFO};
+struct ProcessHandle(HANDLE);
+
+impl ProcessHandle {
+    fn open(pid: u32) -> Result<Self, String> {
+        unsafe {
+            OpenProcess(PROCESS_ALL_ACCESS, false, pid)
+                .map(ProcessHandle)
+                .map_err(|e| format!("Failed to open process: {}", e))
+        }
+    }
+}
+
+impl Drop for ProcessHandle {
+    fn drop(&mut self) {
+        unsafe { let _ = CloseHandle(self.0); }
+    }
+}
 
 pub fn get_module_info(pid: u32, module_name: &str) -> Option<(usize, usize)> {
     unsafe {
-        let handle = OpenProcess(PROCESS_ALL_ACCESS, false, pid).ok()?;
+        let handle = ProcessHandle::open(pid).ok()?;
         let mut modules = [Default::default(); 1024];
         let mut cb_needed = 0;
-        
-        if EnumProcessModules(handle, modules.as_mut_ptr(), std::mem::size_of_val(&modules) as u32, &mut cb_needed).is_err() {
-            let _ = CloseHandle(handle);
+
+        if EnumProcessModules(handle.0, modules.as_mut_ptr(), std::mem::size_of_val(&modules) as u32, &mut cb_needed).is_err() {
             return None;
         }
-        
+
         let count = cb_needed as usize / std::mem::size_of::<HANDLE>();
+        let target = module_name.to_lowercase();
         for i in 0..count {
             let mut name = [0u16; 256];
-            let len = GetModuleBaseNameW(handle, Some(modules[i]), &mut name);
+            let len = GetModuleBaseNameW(handle.0, Some(modules[i]), &mut name);
             if len > 0 {
-                let current_name = String::from_utf16_lossy(&name[..len as usize]);
-                if current_name.to_lowercase() == module_name.to_lowercase() {
+                let current_name = String::from_utf16_lossy(&name[..len as usize]).to_lowercase();
+                if current_name == target {
                     let mut info = MODULEINFO::default();
-                    if GetModuleInformation(handle, modules[i], &mut info, std::mem::size_of::<MODULEINFO>() as u32).is_ok() {
-                        let _ = CloseHandle(handle);
+                    if GetModuleInformation(handle.0, modules[i], &mut info, std::mem::size_of::<MODULEINFO>() as u32).is_ok() {
                         return Some((modules[i].0 as usize, info.SizeOfImage as usize));
                     }
                 }
             }
         }
-        let _ = CloseHandle(handle);
         None
     }
 }
@@ -42,45 +61,31 @@ pub fn aob_scan(pid: u32, module_name: &str, pattern: &str) -> Result<usize, Str
         .ok_or_else(|| format!("Could not find module {}", module_name))?;
 
     let data = read_memory(pid, base, size)?;
-    
-    // Parse pattern: "48 8B 05 ?? ?? ?? ??" -> Vec<Option<u8>>
+
     let pattern_bytes: Vec<Option<u8>> = pattern
         .split_whitespace()
         .map(|b| if b == "??" || b == "?" { None } else { Some(u8::from_str_radix(b, 16).unwrap_or(0)) })
         .collect();
 
-    for i in 0..(data.len() - pattern_bytes.len()) {
-        let mut match_found = true;
-        for (j, p_byte) in pattern_bytes.iter().enumerate() {
-            if let Some(b) = p_byte {
-                if data[i + j] != *b {
-                    match_found = false;
-                    break;
-                }
-            }
-        }
-        if match_found {
-            return Ok(base + i);
-        }
-    }
-
-    Err("Pattern not found".to_string())
+    data.windows(pattern_bytes.len())
+        .position(|window| {
+            window.iter().zip(&pattern_bytes).all(|(b, p)| p.map_or(true, |pb| *b == pb))
+        })
+        .map(|i| base + i)
+        .ok_or_else(|| "Pattern not found".to_string())
 }
 
 pub fn find_process_by_name(name: &str) -> Option<u32> {
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    
-    let search_name = name.to_lowercase();
-    let search_name_no_ext = if search_name.ends_with(".exe") {
-        &search_name[..search_name.len() - 4]
-    } else {
-        &search_name
-    };
+    let refresh = ProcessRefreshKind::nothing().with_exe(UpdateKind::Always);
+    let mut sys = System::new_with_specifics(RefreshKind::nothing().with_processes(refresh));
+    sys.refresh_processes(ProcessesToUpdate::All, false);
+
+    let search = name.to_lowercase();
+    let search_no_ext = search.strip_suffix(".exe").unwrap_or(&search);
 
     for (pid, process) in sys.processes() {
-        let process_name = process.name().to_string_lossy().to_lowercase();
-        if process_name == search_name || process_name == search_name_no_ext {
+        let pname = process.name().to_string_lossy().to_lowercase();
+        if pname == search || pname == search_no_ext {
             return Some(pid.as_u32());
         }
     }
@@ -88,72 +93,48 @@ pub fn find_process_by_name(name: &str) -> Option<u32> {
 }
 
 pub fn read_memory(pid: u32, address: usize, size: usize) -> Result<Vec<u8>, String> {
+    let handle = ProcessHandle::open(pid)?;
+    read_memory_raw(handle.0, address, size)
+}
+
+fn read_memory_raw(handle: HANDLE, address: usize, size: usize) -> Result<Vec<u8>, String> {
     unsafe {
-        let handle = OpenProcess(PROCESS_ALL_ACCESS, false, pid)
-            .map_err(|e| format!("Failed to open process: {}", e))?;
-        
         let mut buffer = vec![0u8; size];
         let mut bytes_read = 0;
-        
-        let success = ReadProcessMemory(
+        ReadProcessMemory(
             handle,
             address as *const _,
             buffer.as_mut_ptr() as *mut _,
             size,
             Some(&mut bytes_read),
-        );
-        
-        let _ = CloseHandle(handle);
-        
-        if success.is_ok() {
-            Ok(buffer)
-        } else {
-            Err("Failed to read memory".to_string())
-        }
+        )
+        .map(|_| buffer)
+        .map_err(|_| "Failed to read memory".to_string())
     }
 }
 
 pub fn resolve_pointer_path(pid: u32, base_address: usize, offsets: &[usize]) -> Result<usize, String> {
-    let mut current_address = base_address;
-
+    let mut current = base_address;
     for &offset in offsets {
-        let data = read_memory(pid, current_address, std::mem::size_of::<usize>())?;
-        if data.len() != std::mem::size_of::<usize>() {
-            return Err("Failed to read pointer address".to_string());
-        }
-        
-        // Convert bytes to usize (assuming 64-bit for modern games, adjust if 32-bit support is needed)
+        let data = read_memory(pid, current, std::mem::size_of::<usize>())?;
         #[cfg(target_pointer_width = "64")]
-        {
-            current_address = usize::from_le_bytes(data.try_into().unwrap()) + offset;
-        }
+        { current = usize::from_le_bytes(data.try_into().unwrap()) + offset; }
         #[cfg(target_pointer_width = "32")]
-        {
-            current_address = u32::from_le_bytes(data.try_into().unwrap()) as usize + offset;
-        }
+        { current = u32::from_le_bytes(data.try_into().unwrap()) as usize + offset; }
     }
-
-    Ok(current_address)
+    Ok(current)
 }
-
-use windows::Win32::System::Memory::{
-    VirtualProtectEx, VirtualQueryEx,
-    PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
-    MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS, PAGE_GUARD,
-};
 
 pub fn scan_memory_for_bytes(pid: u32, needle: &[u8]) -> Result<Vec<usize>, String> {
     unsafe {
-        let handle = OpenProcess(PROCESS_ALL_ACCESS, false, pid)
-            .map_err(|e| format!("Failed to open process: {}", e))?;
-
+        let handle = ProcessHandle::open(pid)?;
         let mut results = Vec::new();
         let mut address: usize = 0;
 
         loop {
             let mut mbi = MEMORY_BASIC_INFORMATION::default();
             let ret = VirtualQueryEx(
-                handle,
+                handle.0,
                 Some(address as *const _),
                 &mut mbi,
                 std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
@@ -161,15 +142,15 @@ pub fn scan_memory_for_bytes(pid: u32, needle: &[u8]) -> Result<Vec<usize>, Stri
             if ret == 0 { break; }
 
             let next = mbi.BaseAddress as usize + mbi.RegionSize;
-
             let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
-            let is_committed = mbi.State == MEM_COMMIT;
-            let is_readable = (mbi.Protect.0 & unreadable) == 0;
 
-            if is_committed && is_readable && mbi.RegionSize <= 512 * 1024 * 1024 {
-                if let Ok(data) = read_memory(pid, mbi.BaseAddress as usize, mbi.RegionSize) {
-                    for i in 0..data.len().saturating_sub(needle.len()) {
-                        if data[i..i + needle.len()] == *needle {
+            if mbi.State == MEM_COMMIT
+                && (mbi.Protect.0 & unreadable) == 0
+                && mbi.RegionSize <= 512 * 1024 * 1024
+            {
+                if let Ok(data) = read_memory_raw(handle.0, mbi.BaseAddress as usize, mbi.RegionSize) {
+                    for (i, window) in data.windows(needle.len()).enumerate() {
+                        if window == needle {
                             results.push(mbi.BaseAddress as usize + i);
                         }
                     }
@@ -180,7 +161,6 @@ pub fn scan_memory_for_bytes(pid: u32, needle: &[u8]) -> Result<Vec<usize>, Stri
             if address == 0 { break; }
         }
 
-        let _ = CloseHandle(handle);
         Ok(results)
     }
 }
@@ -210,70 +190,44 @@ pub fn write_double(pid: u32, address: usize, value: f64) -> Result<(), String> 
 
 pub fn write_memory(pid: u32, address: usize, data: &[u8]) -> Result<(), String> {
     unsafe {
-        let handle = OpenProcess(PROCESS_ALL_ACCESS, false, pid)
-            .map_err(|e| format!("Failed to open process: {}", e))?;
-        
+        let handle = ProcessHandle::open(pid)?;
         let mut bytes_written = 0;
-        
-        let success = WriteProcessMemory(
-            handle,
+        WriteProcessMemory(
+            handle.0,
             address as *const _,
             data.as_ptr() as *const _,
             data.len(),
             Some(&mut bytes_written),
-        );
-        
-        let _ = CloseHandle(handle);
-        
-        if success.is_ok() {
-            Ok(())
-        } else {
-            Err("Failed to write memory".to_string())
-        }
+        )
+        .map_err(|_| "Failed to write memory".to_string())
     }
 }
 
 pub fn patch_memory(pid: u32, address: usize, data: &[u8]) -> Result<(), String> {
     unsafe {
-        let handle = OpenProcess(PROCESS_ALL_ACCESS, false, pid)
-            .map_err(|e| format!("Failed to open process: {}", e))?;
-        
+        let handle = ProcessHandle::open(pid)?;
         let mut old_protect = PAGE_PROTECTION_FLAGS::default();
-        
-        // 1. Change memory protection to Read/Write/Execute
+
         VirtualProtectEx(
-            handle,
+            handle.0,
             address as *const _,
             data.len(),
             PAGE_EXECUTE_READWRITE,
-            &mut old_protect
-        ).map_err(|e| format!("Failed to change memory protection: {}", e))?;
-        
-        // 2. Write the new bytes
+            &mut old_protect,
+        )
+        .map_err(|e| format!("Failed to change memory protection: {}", e))?;
+
         let mut bytes_written = 0;
-        let success = WriteProcessMemory(
-            handle,
+        let result = WriteProcessMemory(
+            handle.0,
             address as *const _,
             data.as_ptr() as *const _,
             data.len(),
             Some(&mut bytes_written),
         );
-        
-        // 3. Restore original protection
-        let _ = VirtualProtectEx(
-            handle,
-            address as *const _,
-            data.len(),
-            old_protect,
-            &mut old_protect
-        );
-        
-        let _ = CloseHandle(handle);
-        
-        if success.is_ok() {
-            Ok(())
-        } else {
-            Err("Failed to write patched bytes".to_string())
-        }
+
+        let _ = VirtualProtectEx(handle.0, address as *const _, data.len(), old_protect, &mut old_protect);
+
+        result.map_err(|_| "Failed to write patched bytes".to_string())
     }
 }

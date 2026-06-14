@@ -10,6 +10,14 @@ function getStore(): Promise<Store> {
   return storePromise;
 }
 
+function makeSetter<T>(setState: (v: T) => void, key: string) {
+  return async (value: T) => {
+    setState(value);
+    const store = await getStore();
+    await store.set(key, value);
+  };
+}
+
 export function useSettings() {
   const [pollInterval, setPollIntervalState] = useState(2000);
   const [scanMode, setScanModeState] = useState(false);
@@ -31,23 +39,13 @@ export function useSettings() {
     });
   }, []);
 
-  const setPollInterval = async (value: number) => {
-    setPollIntervalState(value);
-    const store = await getStore();
-    await store.set('pollInterval', value);
+  return {
+    pollInterval,
+    setPollInterval: makeSetter(setPollIntervalState, 'pollInterval'),
+    scanMode,
+    setScanMode: makeSetter(setScanModeState, 'scanMode'),
+    alwaysOnTop,
+    setAlwaysOnTop: makeSetter(setAlwaysOnTopState, 'alwaysOnTop'),
+    loaded,
   };
-
-  const setScanMode = async (value: boolean) => {
-    setScanModeState(value);
-    const store = await getStore();
-    await store.set('scanMode', value);
-  };
-
-  const setAlwaysOnTop = async (value: boolean) => {
-    setAlwaysOnTopState(value);
-    const store = await getStore();
-    await store.set('alwaysOnTop', value);
-  };
-
-  return { pollInterval, setPollInterval, scanMode, setScanMode, alwaysOnTop, setAlwaysOnTop, loaded };
 }

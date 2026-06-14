@@ -33,6 +33,16 @@ export interface GameTrainer {
   cheats: Cheat[];
 }
 
+function memCmd(op: 'read' | 'write', valueType: 'int' | 'float' | 'double' | undefined): string {
+  if (valueType === 'double') return `${op}_double`;
+  if (valueType === 'float')  return `${op}_float`;
+  return `${op}_int`;
+}
+
+function toHexAddr(addr: string | number): string {
+  return '0x' + BigInt(addr).toString(16);
+}
+
 export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: string, msg: string) => void) {
   const [activeGame, setActiveGame] = useState<GameTrainer | null>(null);
   const [pid, setPid] = useState<number | null>(null);
@@ -52,6 +62,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
     }
     loadTrainers();
   }, []);
+
   const activeGameRef = useRef<GameTrainer | null>(null);
   const pidRef = useRef<number | null>(null);
   const addressCache = useRef<Record<string, string>>({});
@@ -62,9 +73,8 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
   const getModuleBaseRaw = async (moduleName: string): Promise<string> => {
     try {
       const res = await invoke<string | null>('get_module_base', { pid: pidRef.current, moduleName });
-      // Always ensure we return a hex string for consistency
-      return res ? "0x" + BigInt(res).toString(16) : "0x0";
-    } catch { return "0x0"; }
+      return res ? '0x' + BigInt(res).toString(16) : '0x0';
+    } catch { return '0x0'; }
   };
 
   const resolveCheatAddress = async (cheat: Cheat): Promise<string> => {
@@ -96,23 +106,23 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
         finalOffset: cheat.monoFinalOffset ?? 0,
       });
     } else {
+      const modBase = await getModuleBaseRaw(cheat.module);
       let baseAddrStr: string;
       if (cheat.signature) {
         const found = await invoke<string>('aob_scan', { pid: pidRef.current, moduleName: cheat.module, pattern: cheat.signature });
-        baseAddrStr = "0x" + (BigInt(found) + BigInt(cheat.base || "0")).toString(16);
+        baseAddrStr = '0x' + (BigInt(found) + BigInt(cheat.base || '0')).toString(16);
       } else if (cheat.base) {
-        const modBase = await getModuleBaseRaw(cheat.module);
-        baseAddrStr = "0x" + (BigInt(modBase) + BigInt(cheat.base)).toString(16);
-      } else { throw new Error('Invalid cheat config'); }
+        baseAddrStr = '0x' + (BigInt(modBase) + BigInt(cheat.base)).toString(16);
+      } else {
+        throw new Error('Invalid cheat config');
+      }
 
-      const modBase = await getModuleBaseRaw(cheat.module);
-      const relativeOffset = "0x" + (BigInt(baseAddrStr) - BigInt(modBase)).toString(16);
-
+      const relativeOffset = '0x' + (BigInt(baseAddrStr) - BigInt(modBase)).toString(16);
       finalAddr = await invoke<string>('resolve_pointer', {
         pid: pidRef.current,
         moduleName: cheat.module,
         baseOffset: relativeOffset,
-        offsets: cheat.offsets
+        offsets: cheat.offsets,
       });
     }
 
@@ -126,32 +136,34 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
       const currentActive = activeGameRef.current;
       if (!currentActive || !pidRef.current) return;
       try {
-        const results = await Promise.all(currentActive.cheats.map(async (cheat) => {
-          try {
-            const addr = await resolveCheatAddress(cheat);
-            const cmd = cheat.valueType === 'double' ? 'read_double' : cheat.valueType === 'float' ? 'read_float' : 'read_int';
-            // Final address is decimal from Rust, convert to 0xHex for safety if needed
-            const hexAddr = "0x" + BigInt(addr).toString(16);
-            if (cheat.type === 'toggle' && cheat.active && cheat.valueType) {
-              const writeCmd = cheat.valueType === 'double' ? 'write_double'
-                             : cheat.valueType === 'float'  ? 'write_float'
-                             : 'write_int';
-              await invoke(writeCmd, { pid: pidRef.current, address: hexAddr, value: cheat.onValue });
-            }
-            const val = await invoke<number>(cmd, { pid: pidRef.current, address: hexAddr });
-            return { id: cheat.id, val };
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            onCheatError?.(cheat.id, msg);
-            return { id: cheat.id, val: '???' };
-          }
-        }));
+        const results = await Promise.all(
+          currentActive.cheats
+            .filter(c => c.valueType != null)
+            .map(async (cheat) => {
+              try {
+                const addr = await resolveCheatAddress(cheat);
+                const hexAddr = toHexAddr(addr);
+                if (cheat.type === 'toggle' && cheat.active && cheat.valueType) {
+                  await invoke(memCmd('write', cheat.valueType), { pid: pidRef.current, address: hexAddr, value: cheat.onValue });
+                }
+                const val = await invoke<number>(memCmd('read', cheat.valueType), { pid: pidRef.current, address: hexAddr });
+                return { id: cheat.id, val };
+              } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                onCheatError?.(cheat.id, msg);
+                return { id: cheat.id, val: '???' };
+              }
+            })
+        );
         setActiveGame(prev => {
           if (!prev) return null;
-          return { ...prev, cheats: prev.cheats.map(c => {
-            const r = results.find(res => res.id === c.id);
-            return r ? { ...c, currentValue: r.val } : c;
-          })};
+          return {
+            ...prev,
+            cheats: prev.cheats.map(c => {
+              const r = results.find(res => res.id === c.id);
+              return r ? { ...c, currentValue: r.val } : c;
+            }),
+          };
         });
       } catch (e) { }
     }, pollInterval);
@@ -184,13 +196,13 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
     if (cheat.type === 'action' || cheat.type === 'mono' || cheat.type === 'mono_chain') {
       try {
         const addr = await resolveCheatAddress(cheat);
-        const hexAddr = "0x" + BigInt(addr).toString(16);
-        const writeValue = resolveWriteValue(cheat, customValueStr);
-        const cmd = cheat.valueType === 'double' ? 'write_double' : cheat.valueType === 'float' ? 'write_float' : 'write_int';
-        await invoke(cmd, { pid, address: hexAddr, value: writeValue });
+        await invoke(memCmd('write', cheat.valueType), {
+          pid,
+          address: toHexAddr(addr),
+          value: resolveWriteValue(cheat, customValueStr),
+        });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        onError?.(cheat.id, msg);
+        onError?.(cheat.id, err instanceof Error ? err.message : String(err));
       }
       return;
     }
@@ -202,22 +214,23 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
     });
     try {
       const addr = await resolveCheatAddress(cheat);
-      const hexAddr = "0x" + BigInt(addr).toString(16);
+      const hexAddr = toHexAddr(addr);
       if (cheat.type === 'patch') {
         const bytes = willBeActive ? cheat.onBytes : cheat.offBytes;
         await invoke('patch_bytes', { pid, address: hexAddr, bytes });
       } else if (willBeActive) {
-        const writeValue = resolveWriteValue(cheat, customValueStr);
-        const cmd = cheat.valueType === 'double' ? 'write_double' : cheat.valueType === 'float' ? 'write_float' : 'write_int';
-        await invoke(cmd, { pid, address: hexAddr, value: writeValue });
+        await invoke(memCmd('write', cheat.valueType), {
+          pid,
+          address: hexAddr,
+          value: resolveWriteValue(cheat, customValueStr),
+        });
       }
     } catch (err) {
       setActiveGame(prev => {
         if (!prev) return null;
         return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: !willBeActive } : c) };
       });
-      const msg = err instanceof Error ? err.message : String(err);
-      onError?.(cheat.id, msg);
+      onError?.(cheat.id, err instanceof Error ? err.message : String(err));
     }
   };
 

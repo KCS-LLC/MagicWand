@@ -14,17 +14,14 @@ fn find_game(name: &str) -> Option<u32> {
 
 #[tauri::command]
 fn get_module_base(pid: u32, module_name: &str) -> Option<String> {
-    let res = engine::get_module_info(pid, module_name);
-    res.map(|(addr, _)| addr.to_string())
+    engine::get_module_info(pid, module_name).map(|(addr, _)| addr.to_string())
 }
 
 #[tauri::command]
 fn aob_scan(pid: u32, module_name: &str, pattern: &str) -> Result<String, String> {
-    let res = engine::aob_scan(pid, module_name, pattern)?;
-    Ok(res.to_string())
+    engine::aob_scan(pid, module_name, pattern).map(|r| r.to_string())
 }
 
-// Helper to parse address strings that might be hex or decimal
 fn parse_addr(s: &str) -> Result<u64, String> {
     let clean = s.trim().to_lowercase();
     if clean.starts_with("0x") {
@@ -34,49 +31,43 @@ fn parse_addr(s: &str) -> Result<u64, String> {
     }
 }
 
+fn read_4bytes(pid: u32, address: &str) -> Result<[u8; 4], String> {
+    let addr = parse_addr(address)?;
+    engine::read_memory(pid, addr as usize, 4)?
+        .try_into()
+        .map_err(|_| "Failed to read 4 bytes".to_string())
+}
+
 #[tauri::command]
 fn resolve_pointer(
-    pid: u32, 
-    module_name: String, 
-    base_offset: String, 
-    offsets: Vec<String>
+    pid: u32,
+    module_name: String,
+    base_offset: String,
+    offsets: Vec<String>,
 ) -> Result<String, String> {
     let module_base = engine::get_module_info(pid, &module_name)
         .map(|(addr, _)| addr)
         .ok_or_else(|| format!("Module {} not found", module_name))?;
 
-    let offset_val = parse_addr(&base_offset)?;
-    let start_address = (module_base as u64) + offset_val;
-    
+    let start_address = (module_base as u64) + parse_addr(&base_offset)?;
+
     let mut parsed_offsets = Vec::new();
     for o in offsets {
         parsed_offsets.push(parse_addr(&o)? as usize);
     }
 
-    let res = engine::resolve_pointer_path(pid, start_address as usize, &parsed_offsets)?;
-    Ok(res.to_string())
+    engine::resolve_pointer_path(pid, start_address as usize, &parsed_offsets)
+        .map(|r| r.to_string())
 }
 
 #[tauri::command]
 fn read_int(pid: u32, address: String) -> Result<i32, String> {
-    let addr = parse_addr(&address)?;
-    let data = engine::read_memory(pid, addr as usize, 4)?;
-    if data.len() == 4 {
-        Ok(i32::from_le_bytes(data.try_into().unwrap()))
-    } else {
-        Err("Failed to read 4 bytes".to_string())
-    }
+    Ok(i32::from_le_bytes(read_4bytes(pid, &address)?))
 }
 
 #[tauri::command]
 fn read_float(pid: u32, address: String) -> Result<f32, String> {
-    let addr = parse_addr(&address)?;
-    let data = engine::read_memory(pid, addr as usize, 4)?;
-    if data.len() == 4 {
-        Ok(f32::from_le_bytes(data.try_into().unwrap()))
-    } else {
-        Err("Failed to read 4 bytes".to_string())
-    }
+    Ok(f32::from_le_bytes(read_4bytes(pid, &address)?))
 }
 
 #[tauri::command]

@@ -76,7 +76,7 @@ pub fn aob_scan(pid: u32, module_name: &str, pattern: &str) -> Result<usize, Str
 }
 
 pub fn find_process_by_name(name: &str) -> Option<u32> {
-    let refresh = ProcessRefreshKind::new().with_exe(UpdateKind::Always);
+    let refresh = ProcessRefreshKind::nothing().with_exe(UpdateKind::Always);
     let mut sys = System::new_with_specifics(RefreshKind::nothing().with_processes(refresh));
     sys.refresh_processes(ProcessesToUpdate::All, false);
 
@@ -93,10 +93,8 @@ pub fn find_process_by_name(name: &str) -> Option<u32> {
 }
 
 pub fn read_memory(pid: u32, address: usize, size: usize) -> Result<Vec<u8>, String> {
-    unsafe {
-        let handle = ProcessHandle::open(pid)?;
-        read_memory_raw(handle.0, address, size)
-    }
+    let handle = ProcessHandle::open(pid)?;
+    read_memory_raw(handle.0, address, size)
 }
 
 fn read_memory_raw(handle: HANDLE, address: usize, size: usize) -> Result<Vec<u8>, String> {

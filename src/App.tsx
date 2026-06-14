@@ -180,7 +180,7 @@ function App() {
                       <span className="cheat-name">{cheat.name}</span>
                       <span className={`cheat-type-badge cheat-type-${cheat.type}`}>{cheat.type}</span>
                     </div>
-                    {!(['scan', 'mono', 'mono_chain'] as const).includes(cheat.type) && (
+                    {cheat.type !== 'scan' && cheat.type !== 'mono' && cheat.type !== 'mono_chain' && (
                       <span className="live-value">
                         {cheat.currentValue !== undefined ? `Value: ${typeof cheat.currentValue === 'number' ? cheat.currentValue.toFixed(2) : cheat.currentValue}` : 'Detecting...'}
                       </span>

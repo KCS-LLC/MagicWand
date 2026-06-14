@@ -33,11 +33,10 @@ export interface GameTrainer {
   cheats: Cheat[];
 }
 
-export function useTrainer(onCheatError?: (id: string, msg: string) => void) {
+export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: string, msg: string) => void) {
   const [activeGame, setActiveGame] = useState<GameTrainer | null>(null);
   const [pid, setPid] = useState<number | null>(null);
   const [trainers, setTrainers] = useState<GameTrainer[]>([]);
-  const [pollInterval, setPollInterval] = useState(2000);
 
   useEffect(() => {
     async function loadTrainers() {
@@ -215,5 +214,5 @@ export function useTrainer(onCheatError?: (id: string, msg: string) => void) {
     }
   };
 
-  return { activeGame, trainers, selectGame, applyCheat, pid, pollInterval, setPollInterval };
+  return { activeGame, trainers, selectGame, applyCheat, pid };
 }

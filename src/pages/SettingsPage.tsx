@@ -1,8 +1,8 @@
 interface SettingsPageProps {
   pollInterval: number;
-  onPollIntervalChange: (value: number) => void;
+  onPollIntervalChange: (value: number) => void | Promise<void>;
   scanMode: boolean;
-  onScanModeChange: (value: boolean) => void;
+  onScanModeChange: (value: boolean) => void | Promise<void>;
 }
 
 export function SettingsPage({ pollInterval, onPollIntervalChange, scanMode, onScanModeChange }: SettingsPageProps) {

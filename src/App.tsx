@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useTrainer, Cheat } from "./hooks/useTrainer";
+import { useSettings } from "./hooks/useSettings";
 import { CommunityPage } from "./pages/CommunityPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import "./App.css";
@@ -29,11 +30,19 @@ function App() {
   const [scanInputs, setScanInputs] = useState<Record<string, string>>({});
   const [cheatErrors, setCheatErrors] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState<Page>('library');
-  const [scanMode, setScanMode] = useState(false);
-  const [alwaysOnTop, setAlwaysOnTop] = useState(false);
-  const { activeGame, trainers, selectGame, applyCheat, pid, pollInterval, setPollInterval } = useTrainer(
+  const { pollInterval, setPollInterval, scanMode, setScanMode, alwaysOnTop, setAlwaysOnTop, loaded } = useSettings();
+  const { activeGame, trainers, selectGame, applyCheat, pid } = useTrainer(
+    pollInterval,
     (id, msg) => setCheatErrors(prev => ({ ...prev, [id]: msg }))
   );
+
+  useEffect(() => {
+    if (loaded && alwaysOnTop) {
+      getCurrentWindow().setAlwaysOnTop(true);
+    }
+  }, [loaded]);
+
+  if (!loaded) return null;
 
   const toggleAlwaysOnTop = async () => {
     const next = !alwaysOnTop;

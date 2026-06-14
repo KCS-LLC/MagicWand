@@ -196,14 +196,17 @@ fn try_find_class_at_cache(
     let raw_size = read_u32(pid, cache_base.saturating_add(off.hash_size))? as usize;
     if raw_size < 16 || raw_size > 65536 { return None; }
 
-    // Decode chain offset from the next_value function pointer at cache_base+0x10
+    // If the chain decoder can't read the bucket's next_value helper, fall back to head-only scan.
     let next_fn = read_ptr(pid, cache_base.saturating_add(0x10)).unwrap_or(0);
-    let chain_off = decode_next_value_offset(pid, next_fn);
+    let (chain_off, max_steps) = match decode_next_value_offset(pid, next_fn) {
+        Some(co) => (co, 32),
+        None => (0, 1),
+    };
 
     for i in 0..raw_size {
         let mut klass = read_ptr(pid, table_ptr.saturating_add(i * 8)).unwrap_or(0);
         let mut steps = 0;
-        while klass >= 0x10000 && steps < 32 {
+        while klass >= 0x10000 && steps < max_steps {
             let name_ptr = read_ptr(pid, klass.saturating_add(off.class_name)).unwrap_or(0);
             let ns_ptr   = read_ptr(pid, klass.saturating_add(off.class_namespace)).unwrap_or(0);
             let name = read_string(pid, name_ptr, 128).unwrap_or_default();
@@ -211,13 +214,8 @@ fn try_find_class_at_cache(
             if name == class_name && ns == namespace {
                 return Some(klass);
             }
-            match chain_off {
-                Some(co) => {
-                    klass = read_ptr(pid, klass.saturating_add(co)).unwrap_or(0);
-                    steps += 1;
-                }
-                None => break,
-            }
+            klass = read_ptr(pid, klass.saturating_add(chain_off)).unwrap_or(0);
+            steps += 1;
         }
     }
     None
@@ -230,12 +228,20 @@ fn find_class(
     class_name: &str,
     off: &MonoOffsets,
 ) -> Option<usize> {
-    for &img_off in &[off.assembly_image, 0x60usize, 0x68, 0x70, 0x78] {
+    // Tried in order: the configured default first, then known alternates for other Unity Mono builds.
+    const IMAGE_OFFSET_CANDIDATES: &[usize] = &[0x60, 0x68, 0x70, 0x78];
+    const CACHE_OFFSET_CANDIDATES: &[usize] = &[0x4D0, 0x2D0, 0x378, 0x3D8, 0x400, 0x440, 0x480, 0x500, 0x550, 0x600];
+
+    let img_candidates = std::iter::once(off.assembly_image)
+        .chain(IMAGE_OFFSET_CANDIDATES.iter().copied().filter(|o| *o != off.assembly_image));
+    for img_off in img_candidates {
         let image = match read_ptr(pid, assembly.saturating_add(img_off)) {
             Some(p) if p > 0x10000 => p,
             _ => continue,
         };
-        for &cache_off in &[off.image_class_cache, 0x4D0usize, 0x2D0, 0x378, 0x3D8, 0x400, 0x440, 0x480, 0x500, 0x550, 0x600] {
+        let cache_candidates = std::iter::once(off.image_class_cache)
+            .chain(CACHE_OFFSET_CANDIDATES.iter().copied().filter(|o| *o != off.image_class_cache));
+        for cache_off in cache_candidates {
             if let Some(klass) = try_find_class_at_cache(pid, image, cache_off, namespace, class_name, off) {
                 return Some(klass);
             }
@@ -262,14 +268,14 @@ fn find_field_offset(pid: u32, klass: usize, field_name: &str, off: &MonoOffsets
 }
 
 fn get_static_field_address(pid: u32, klass: usize, field_offset: u32, off: &MonoOffsets) -> Option<usize> {
-    let runtime_info = read_ptr(pid, klass + off.class_runtime_info)?;
-    let vtable       = read_ptr(pid, runtime_info + off.runtime_info_vtable)?;
-    let static_data  = read_ptr(pid, vtable + off.vtable_data)?;
-    Some(static_data + field_offset as usize)
+    let runtime_info = read_ptr(pid, klass.saturating_add(off.class_runtime_info))?;
+    let vtable       = read_ptr(pid, runtime_info.saturating_add(off.runtime_info_vtable))?;
+    let static_data  = read_ptr(pid, vtable.saturating_add(off.vtable_data))?;
+    Some(static_data.saturating_add(field_offset as usize))
 }
 
 fn get_parent_class(pid: u32, klass: usize, off: &MonoOffsets) -> Option<usize> {
-    let parent = read_ptr(pid, klass + off.class_parent)?;
+    let parent = read_ptr(pid, klass.saturating_add(off.class_parent))?;
     if parent == 0 { None } else { Some(parent) }
 }
 

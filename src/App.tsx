@@ -42,6 +42,22 @@ function App() {
     }
   }, [loaded]);
 
+  const fetchGames = useCallback(async () => {
+    setLoading(true);
+    try {
+      const games = await invoke<DetectedGame[]>("scan_games");
+      setDetectedGames(games);
+    } catch (error) {
+      console.error("APP: scan_games error:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchGames();
+  }, [fetchGames]);
+
   if (!loaded) return null;
 
   const toggleAlwaysOnTop = async () => {
@@ -94,22 +110,6 @@ function App() {
               : 'write_int';
     await invoke(cmd, { pid, address: state.cachedAddress, value: cheat.onValue });
   };
-
-  const fetchGames = useCallback(async () => {
-    setLoading(true);
-    try {
-      const games = await invoke<DetectedGame[]>("scan_games");
-      setDetectedGames(games);
-    } catch (error) {
-      console.error("APP: scan_games error:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchGames();
-  }, [fetchGames]);
 
   const handleGameClick = (game: DetectedGame) => {
     const trainer = trainers.find(t =>

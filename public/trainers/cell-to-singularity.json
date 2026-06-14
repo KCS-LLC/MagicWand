@@ -11,12 +11,12 @@
       "monoAssembly": "Assembly-CSharp",
       "monoNamespace": "",
       "monoClass": "Calculator",
-      "monoStaticField": "instance",
+      "monoStaticField": "_instance",
       "monoStaticViaParent": true,
       "monoInstanceField": "_bank",
       "monoFinalOffset": 48,
       "offsets": [],
-      "onValue": 1000000
+      "onValue": 1000
     },
     {
       "id": "cts-darwinium-scan",
@@ -25,7 +25,7 @@
       "valueType": "double",
       "module": "",
       "offsets": [],
-      "onValue": 1000000
+      "onValue": 1000
     }
   ]
 }

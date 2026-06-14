@@ -25,6 +25,9 @@ export function useSettings() {
       if (sm != null) setScanModeState(sm);
       if (aot != null) setAlwaysOnTopState(aot);
       setLoaded(true);
+    }).catch(err => {
+      console.error('useSettings: store failed to load, using defaults:', err);
+      setLoaded(true);
     });
   }, []);
 

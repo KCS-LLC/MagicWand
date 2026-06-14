@@ -33,7 +33,7 @@ export interface GameTrainer {
   cheats: Cheat[];
 }
 
-export function useTrainer() {
+export function useTrainer(onCheatError?: (id: string, msg: string) => void) {
   const [activeGame, setActiveGame] = useState<GameTrainer | null>(null);
   const [pid, setPid] = useState<number | null>(null);
   const [trainers, setTrainers] = useState<GameTrainer[]>([]);
@@ -135,7 +135,11 @@ export function useTrainer() {
             const hexAddr = "0x" + BigInt(addr).toString(16);
             const val = await invoke<number>(cmd, { pid: pidRef.current, address: hexAddr });
             return { id: cheat.id, val };
-          } catch { return { id: cheat.id, val: '???' }; }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            onCheatError?.(cheat.id, msg);
+            return { id: cheat.id, val: '???' };
+          }
         }));
         setActiveGame(prev => {
           if (!prev) return null;
@@ -169,7 +173,7 @@ export function useTrainer() {
     return cheat.onValue;
   }
 
-  const applyCheat = async (cheat: Cheat, customValueStr?: string) => {
+  const applyCheat = async (cheat: Cheat, customValueStr?: string, onError?: (id: string, msg: string) => void) => {
     if (!pid || !activeGame) return;
 
     if (cheat.type === 'action' || cheat.type === 'mono' || cheat.type === 'mono_chain') {
@@ -180,7 +184,8 @@ export function useTrainer() {
         const cmd = cheat.valueType === 'double' ? 'write_double' : cheat.valueType === 'float' ? 'write_float' : 'write_int';
         await invoke(cmd, { pid, address: hexAddr, value: writeValue });
       } catch (err) {
-        console.error('Action cheat failed:', err);
+        const msg = err instanceof Error ? err.message : String(err);
+        onError?.(cheat.id, msg);
       }
       return;
     }
@@ -205,6 +210,8 @@ export function useTrainer() {
         if (!prev) return null;
         return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: c.active } : c) };
       });
+      const msg = err instanceof Error ? err.message : String(err);
+      onError?.(cheat.id, msg);
     }
   };
 

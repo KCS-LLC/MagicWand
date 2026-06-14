@@ -462,3 +462,14 @@ input:checked + .slider:before {
 }
 
 .cheat-type-scan { background: #1e1a3a; color: #a78bfa; }
+
+.cheat-error {
+  font-size: 0.75rem;
+  color: #f87171;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 340px;
+}

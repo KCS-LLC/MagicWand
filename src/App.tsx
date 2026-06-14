@@ -27,10 +27,13 @@ function App() {
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const [scanStates, setScanStates] = useState<Record<string, ScanState>>({});
   const [scanInputs, setScanInputs] = useState<Record<string, string>>({});
+  const [cheatErrors, setCheatErrors] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState<Page>('library');
   const [scanMode, setScanMode] = useState(false);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
-  const { activeGame, trainers, selectGame, applyCheat, pid, pollInterval, setPollInterval } = useTrainer();
+  const { activeGame, trainers, selectGame, applyCheat, pid, pollInterval, setPollInterval } = useTrainer(
+    (id, msg) => setCheatErrors(prev => ({ ...prev, [id]: msg }))
+  );
 
   const toggleAlwaysOnTop = async () => {
     const next = !alwaysOnTop;
@@ -41,6 +44,7 @@ function App() {
   const navTo = (page: Page) => {
     setScanStates({});
     setScanInputs({});
+    setCheatErrors({});
     selectGame(null);
     setCurrentPage(page);
   };
@@ -106,6 +110,7 @@ function App() {
     );
     setScanStates({});
     setScanInputs({});
+    setCheatErrors({});
     if (trainer) {
       selectGame(trainer);
     } else {
@@ -152,7 +157,7 @@ function App() {
       <main className="main-content">
         {activeGame ? (
           <div className="trainer-dashboard">
-            <button className="back-button" onClick={() => { setScanStates({}); setScanInputs({}); selectGame(null); }}>← Back</button>
+            <button className="back-button" onClick={() => { setScanStates({}); setScanInputs({}); setCheatErrors({}); selectGame(null); }}>← Back</button>
             <div className="trainer-header">
               <h1>{activeGame.name}</h1>
               <span className={`status-badge ${pid ? 'status-online' : 'status-offline'}`}>
@@ -172,6 +177,9 @@ function App() {
                       <span className="live-value">
                         {cheat.currentValue !== undefined ? `Value: ${typeof cheat.currentValue === 'number' ? cheat.currentValue.toFixed(2) : cheat.currentValue}` : 'Detecting...'}
                       </span>
+                    )}
+                    {cheatErrors[cheat.id] && (
+                      <span className="cheat-error">{cheatErrors[cheat.id]}</span>
                     )}
                   </div>
                   {cheat.type === 'scan' ? (
@@ -225,7 +233,7 @@ function App() {
                       {cheat.type === 'mono' || cheat.type === 'mono_chain' ? (
                         <button
                           className="fire-button"
-                          onClick={() => applyCheat(cheat)}
+                          onClick={() => applyCheat(cheat, undefined, (id, msg) => setCheatErrors(prev => ({ ...prev, [id]: msg })))}
                           disabled={!pid}
                         >
                           Set to {cheat.onValue}
@@ -233,7 +241,7 @@ function App() {
                       ) : cheat.type === 'action' ? (
                         <button
                           className="fire-button"
-                          onClick={() => applyCheat(cheat, customValues[cheat.id])}
+                          onClick={() => applyCheat(cheat, customValues[cheat.id], (id, msg) => setCheatErrors(prev => ({ ...prev, [id]: msg })))}
                           disabled={!pid}
                         >
                           Fire
@@ -243,7 +251,7 @@ function App() {
                           <input
                             type="checkbox"
                             checked={cheat.active || false}
-                            onChange={() => applyCheat(cheat, customValues[cheat.id])}
+                            onChange={() => applyCheat(cheat, customValues[cheat.id], (id, msg) => setCheatErrors(prev => ({ ...prev, [id]: msg })))}
                             disabled={!pid}
                           />
                           <span className="slider"></span>

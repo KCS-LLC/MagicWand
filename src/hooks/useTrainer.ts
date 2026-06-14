@@ -132,6 +132,12 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
             const cmd = cheat.valueType === 'double' ? 'read_double' : cheat.valueType === 'float' ? 'read_float' : 'read_int';
             // Final address is decimal from Rust, convert to 0xHex for safety if needed
             const hexAddr = "0x" + BigInt(addr).toString(16);
+            if (cheat.type === 'toggle' && cheat.active && cheat.valueType) {
+              const writeCmd = cheat.valueType === 'double' ? 'write_double'
+                             : cheat.valueType === 'float'  ? 'write_float'
+                             : 'write_int';
+              await invoke(writeCmd, { pid: pidRef.current, address: hexAddr, value: cheat.onValue });
+            }
             const val = await invoke<number>(cmd, { pid: pidRef.current, address: hexAddr });
             return { id: cheat.id, val };
           } catch (e) {
@@ -189,17 +195,18 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
       return;
     }
 
+    const willBeActive = !cheat.active;
     setActiveGame(prev => {
       if (!prev) return null;
-      return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: !c.active } : c) };
+      return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: willBeActive } : c) };
     });
     try {
       const addr = await resolveCheatAddress(cheat);
       const hexAddr = "0x" + BigInt(addr).toString(16);
       if (cheat.type === 'patch') {
-        const bytes = !cheat.active ? cheat.onBytes : cheat.offBytes;
+        const bytes = willBeActive ? cheat.onBytes : cheat.offBytes;
         await invoke('patch_bytes', { pid, address: hexAddr, bytes });
-      } else {
+      } else if (willBeActive) {
         const writeValue = resolveWriteValue(cheat, customValueStr);
         const cmd = cheat.valueType === 'double' ? 'write_double' : cheat.valueType === 'float' ? 'write_float' : 'write_int';
         await invoke(cmd, { pid, address: hexAddr, value: writeValue });
@@ -207,7 +214,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
     } catch (err) {
       setActiveGame(prev => {
         if (!prev) return null;
-        return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: c.active } : c) };
+        return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: !willBeActive } : c) };
       });
       const msg = err instanceof Error ? err.message : String(err);
       onError?.(cheat.id, msg);

@@ -24,6 +24,7 @@ export interface Cheat {
   monoInstanceField?: string;
   monoInstanceFieldIsRef?: boolean;
   monoFinalOffset?: number;
+  onValueFromOffset?: number;
   active?: boolean;
   currentValue?: string | number;
 }
@@ -146,7 +147,12 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
                 const addr = await resolveCheatAddress(cheat);
                 const hexAddr = toHexAddr(addr);
                 if ((cheat.type === 'toggle' || cheat.type === 'mono_chain') && cheat.active && cheat.valueType) {
-                  await invoke(memCmd('write', cheat.valueType), { pid: pidRef.current, address: hexAddr, value: cheat.onValue });
+                  let writeValue = cheat.onValue;
+                  if (cheat.onValueFromOffset != null) {
+                    const srcAddr = toHexAddr('0x' + (BigInt(addr) - BigInt(cheat.monoFinalOffset ?? 0) + BigInt(cheat.onValueFromOffset)).toString(16));
+                    writeValue = await invoke<number>(memCmd('read', cheat.valueType), { pid: pidRef.current, address: srcAddr });
+                  }
+                  await invoke(memCmd('write', cheat.valueType), { pid: pidRef.current, address: hexAddr, value: writeValue });
                 }
                 const val = await invoke<number>(memCmd('read', cheat.valueType), { pid: pidRef.current, address: hexAddr });
                 return { id: cheat.id, val };

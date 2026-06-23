@@ -15,7 +15,8 @@
       "monoStaticViaParent": false,
       "monoInstanceField": "state",
       "monoInstanceFieldIsRef": true,
-      "monoFinalOffset": 20,
+      "monoFinalOffset": 28,
+      "onValueFromOffset": 24,
       "offsets": [],
       "onValue": 9999
     },
@@ -32,7 +33,7 @@
       "monoStaticViaParent": false,
       "monoInstanceField": "state",
       "monoInstanceFieldIsRef": true,
-      "monoFinalOffset": 16,
+      "monoFinalOffset": 24,
       "offsets": [],
       "onValue": 9999
     },

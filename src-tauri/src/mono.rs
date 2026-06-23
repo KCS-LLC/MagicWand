@@ -99,7 +99,10 @@ struct MonoOffsets {
     field_name:          usize,
     field_offset:        usize,
     runtime_info_vtable: usize,
-    vtable_data:         usize,
+    /// MonoClass: offset of static data index (read as u32)
+    vtable_sd_index:     usize,
+    /// MonoVTable: base offset for static data array
+    vtable_sd_base:      usize,
     /// MonoClass: offset of MonoClass* parent pointer
     class_parent:        usize,
 }
@@ -121,7 +124,8 @@ impl MonoOffsets {
             field_name:          0x08,
             field_offset:        0x18,
             runtime_info_vtable: 0x08,
-            vtable_data:         0x70,
+            vtable_sd_index:     0x5C,
+            vtable_sd_base:      0x48,
             class_parent:        0x30,
         }
     }
@@ -270,8 +274,42 @@ fn find_field_offset(pid: u32, klass: usize, field_name: &str, off: &MonoOffsets
 fn get_static_field_address(pid: u32, klass: usize, field_offset: u32, off: &MonoOffsets) -> Option<usize> {
     let runtime_info = read_ptr(pid, klass.saturating_add(off.class_runtime_info))?;
     let vtable       = read_ptr(pid, runtime_info.saturating_add(off.runtime_info_vtable))?;
-    let static_data  = read_ptr(pid, vtable.saturating_add(off.vtable_data))?;
+    let vt_klass     = read_ptr(pid, vtable)?;
+    let sd_index     = read_u32(pid, vt_klass.saturating_add(off.vtable_sd_index))? as usize;
+    let static_data  = read_ptr(pid, vtable.saturating_add(sd_index * 8 + off.vtable_sd_base))?;
     Some(static_data.saturating_add(field_offset as usize))
+}
+
+fn probe_static_field_offsets(pid: u32, klass: usize, field_offset: u32, _off: &MonoOffsets) -> String {
+    let mut report = String::new();
+    let ri_candidates = [0xC8, 0xD0, 0xD8, 0xE0, 0xE8, 0xF0];
+    for &ri in &ri_candidates {
+        if let Some(runtime_info) = read_ptr(pid, klass.saturating_add(ri)) {
+            if runtime_info == 0 || runtime_info > 0x7FFFFFFFFFFF { continue; }
+            if let Some(vtable) = read_ptr(pid, runtime_info.saturating_add(0x08)) {
+                if vtable == 0 || vtable > 0x7FFFFFFFFFFF { continue; }
+                if let Some(vt_klass) = read_ptr(pid, vtable) {
+                    if let Some(sd_idx) = read_u32(pid, vt_klass.saturating_add(0x5C)) {
+                        let sd_off = (sd_idx as usize) * 8 + 0x48;
+                        if let Some(static_data) = read_ptr(pid, vtable.saturating_add(sd_off)) {
+                            if static_data > 0 && static_data < 0x7FFFFFFFFFFF {
+                                let addr = static_data.saturating_add(field_offset as usize);
+                                if let Some(val) = read_ptr(pid, addr) {
+                                    if val > 0 && val < 0x7FFFFFFFFFFF {
+                                        report.push_str(&format!(
+                                            "HIT ri=0x{:X} sd_idx={} → ptr=0x{:X}\n",
+                                            ri, sd_idx, val
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if report.is_empty() { "No valid offset combination found".to_string() } else { report }
 }
 
 fn get_parent_class(pid: u32, klass: usize, off: &MonoOffsets) -> Option<usize> {
@@ -280,9 +318,14 @@ fn get_parent_class(pid: u32, klass: usize, off: &MonoOffsets) -> Option<usize> 
 }
 
 fn get_instance_field_offset(pid: u32, klass: usize, field_name: &str, off: &MonoOffsets) -> Result<usize, String> {
-    find_field_offset(pid, klass, field_name, off)
-        .map(|o| o as usize)
-        .ok_or_else(|| format!("Field '{}' not found", field_name))
+    let mut current = Some(klass);
+    while let Some(k) = current {
+        if let Some(o) = find_field_offset(pid, k, field_name, off) {
+            return Ok(o as usize);
+        }
+        current = get_parent_class(pid, k, off);
+    }
+    Err(format!("Field '{}' not found", field_name))
 }
 
 /// Resolve a three-step instance chain:
@@ -327,8 +370,9 @@ pub fn resolve_mono_chain(
         .ok_or("Could not resolve static vtable for parent class")?;
     let instance_ptr = read_ptr(pid, static_addr)
         .ok_or("Static field pointer is null — game may not be fully loaded yet")?;
-    if instance_ptr == 0 {
-        return Err("Instance pointer is null — singleton not yet initialized".to_string());
+    if instance_ptr == 0 || instance_ptr > 0x7FFFFFFFFFFF {
+        let probe = probe_static_field_offsets(pid, static_class, static_off, &off);
+        return Err(format!("Instance pointer invalid (0x{:X}). Probe results:\n{}", instance_ptr, probe));
     }
 
     // Step 3: get the instance field offset on the original class
@@ -337,12 +381,18 @@ pub fn resolve_mono_chain(
     let field_addr = instance_ptr.saturating_add(field_offset);
     let base = if instance_field_is_ref {
         read_ptr(pid, field_addr)
-            .ok_or("Instance field pointer is null")?
+            .ok_or_else(|| format!(
+                "Instance field read failed at 0x{:X} (instance=0x{:X} + offset=0x{:X})",
+                field_addr, instance_ptr, field_offset
+            ))?
     } else {
         field_addr
     };
     if base == 0 {
-        return Err("Instance field reference is null".to_string());
+        return Err(format!(
+            "Instance field reference is null at 0x{:X} (instance=0x{:X} + offset=0x{:X})",
+            field_addr, instance_ptr, field_offset
+        ));
     }
     Ok(base.saturating_add(final_offset))
 }

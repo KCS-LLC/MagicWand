@@ -116,12 +116,14 @@ fn resolve_mono_chain(
     via_parent: bool,
     instance_field: String,
     final_offset: usize,
+    instance_field_is_ref: Option<bool>,
 ) -> Result<String, String> {
     let (mono_base, _) = engine::get_module_info(pid, &module_name)
         .ok_or_else(|| format!("Module '{}' not found in process", module_name))?;
     let addr = mono::resolve_mono_chain(
         pid, mono_base, &assembly, &namespace, &class_name,
         &static_field, via_parent, &instance_field, final_offset,
+        instance_field_is_ref.unwrap_or(false),
     )?;
     Ok(format!("0x{:X}", addr))
 }

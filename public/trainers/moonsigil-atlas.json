@@ -1,0 +1,76 @@
+{
+  "name": "Moonsigil Atlas",
+  "executable": "Moonsigil Atlas.exe",
+  "cheats": [
+    {
+      "id": "moonsigil-cur-health",
+      "name": "Current Health",
+      "type": "mono_chain",
+      "valueType": "int",
+      "module": "mono-2.0-bdwgc.dll",
+      "monoAssembly": "Assembly-CSharp",
+      "monoNamespace": "HexDeck.Combat",
+      "monoClass": "PlayerRepresentation",
+      "monoStaticField": "Instance",
+      "monoStaticViaParent": false,
+      "monoInstanceField": "state",
+      "monoInstanceFieldIsRef": true,
+      "monoFinalOffset": 20,
+      "offsets": [],
+      "onValue": 9999
+    },
+    {
+      "id": "moonsigil-max-health",
+      "name": "Max Health",
+      "type": "mono_chain",
+      "valueType": "int",
+      "module": "mono-2.0-bdwgc.dll",
+      "monoAssembly": "Assembly-CSharp",
+      "monoNamespace": "HexDeck.Combat",
+      "monoClass": "PlayerRepresentation",
+      "monoStaticField": "Instance",
+      "monoStaticViaParent": false,
+      "monoInstanceField": "state",
+      "monoInstanceFieldIsRef": true,
+      "monoFinalOffset": 16,
+      "offsets": [],
+      "onValue": 9999
+    },
+    {
+      "id": "moonsigil-cur-health-scan",
+      "name": "Current Health (scan fallback)",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 9999
+    },
+    {
+      "id": "moonsigil-gold",
+      "name": "Gold",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 99999
+    },
+    {
+      "id": "moonsigil-astral-gems",
+      "name": "Astral Gems",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 999
+    },
+    {
+      "id": "moonsigil-astral-dust",
+      "name": "Astral Dust",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 999
+    }
+  ]
+}

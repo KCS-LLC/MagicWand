@@ -22,6 +22,7 @@ export interface Cheat {
   monoStaticField?: string;
   monoStaticViaParent?: boolean;
   monoInstanceField?: string;
+  monoInstanceFieldIsRef?: boolean;
   monoFinalOffset?: number;
   active?: boolean;
   currentValue?: string | number;
@@ -79,7 +80,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
 
   const resolveCheatAddress = async (cheat: Cheat): Promise<string> => {
     if (!pidRef.current) throw new Error('Not connected');
-    if (addressCache.current[cheat.id]) return addressCache.current[cheat.id];
+    if (cheat.type !== 'mono_chain' && addressCache.current[cheat.id]) return addressCache.current[cheat.id];
 
     let finalAddr: string;
 
@@ -104,6 +105,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
         viaParent: cheat.monoStaticViaParent ?? false,
         instanceField: cheat.monoInstanceField ?? '',
         finalOffset: cheat.monoFinalOffset ?? 0,
+        instanceFieldIsRef: cheat.monoInstanceFieldIsRef ?? false,
       });
     } else {
       const modBase = await getModuleBaseRaw(cheat.module);
@@ -143,7 +145,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
               try {
                 const addr = await resolveCheatAddress(cheat);
                 const hexAddr = toHexAddr(addr);
-                if (cheat.type === 'toggle' && cheat.active && cheat.valueType) {
+                if ((cheat.type === 'toggle' || cheat.type === 'mono_chain') && cheat.active && cheat.valueType) {
                   await invoke(memCmd('write', cheat.valueType), { pid: pidRef.current, address: hexAddr, value: cheat.onValue });
                 }
                 const val = await invoke<number>(memCmd('read', cheat.valueType), { pid: pidRef.current, address: hexAddr });
@@ -193,7 +195,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
   const applyCheat = async (cheat: Cheat, customValueStr?: string, onError?: (id: string, msg: string) => void) => {
     if (!pid || !activeGame) return;
 
-    if (cheat.type === 'action' || cheat.type === 'mono' || cheat.type === 'mono_chain') {
+    if (cheat.type === 'action' || cheat.type === 'mono') {
       try {
         const addr = await resolveCheatAddress(cheat);
         await invoke(memCmd('write', cheat.valueType), {

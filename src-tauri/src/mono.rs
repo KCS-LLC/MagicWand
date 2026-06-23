@@ -299,6 +299,7 @@ pub fn resolve_mono_chain(
     via_parent: bool,
     instance_field: &str,
     final_offset: usize,
+    instance_field_is_ref: bool,
 ) -> Result<usize, String> {
     let off = MonoOffsets::unity_default();
 
@@ -333,9 +334,17 @@ pub fn resolve_mono_chain(
     // Step 3: get the instance field offset on the original class
     let field_offset = get_instance_field_offset(pid, klass, instance_field, &off)?;
 
-    // instance_ptr + field_offset = start of value-type struct (_bank / Cry)
-    // + final_offset = primitive field within that struct (Cry.c = Darwinium)
-    Ok(instance_ptr.saturating_add(field_offset).saturating_add(final_offset))
+    let field_addr = instance_ptr.saturating_add(field_offset);
+    let base = if instance_field_is_ref {
+        read_ptr(pid, field_addr)
+            .ok_or("Instance field pointer is null")?
+    } else {
+        field_addr
+    };
+    if base == 0 {
+        return Err("Instance field reference is null".to_string());
+    }
+    Ok(base.saturating_add(final_offset))
 }
 
 /// Resolve a Mono static field to its runtime address in the target process.

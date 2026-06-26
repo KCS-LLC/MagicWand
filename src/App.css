@@ -310,6 +310,7 @@ input:checked + .slider:before {
 .cheat-type-patch  { background: #1a2e1a; color: #4ade80; }
 .cheat-type-mono       { background: #1a1a3a; color: #818cf8; }
 .cheat-type-mono_chain { background: #1a1a3a; color: #c4b5fd; }
+.cheat-type-ue5_prop   { background: #1a2a1a; color: #86efac; }
 
 .fire-button {
   background-color: #7c3aed;

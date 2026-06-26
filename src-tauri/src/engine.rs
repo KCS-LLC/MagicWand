@@ -59,8 +59,12 @@ pub fn get_module_info(pid: u32, module_name: &str) -> Option<(usize, usize)> {
 pub fn aob_scan(pid: u32, module_name: &str, pattern: &str) -> Result<usize, String> {
     let (base, size) = get_module_info(pid, module_name)
         .ok_or_else(|| format!("Could not find module {}", module_name))?;
+    aob_scan_range(pid, base, size, pattern)
+        .ok_or_else(|| "Pattern not found".to_string())
+}
 
-    let data = read_memory(pid, base, size)?;
+pub fn aob_scan_range(pid: u32, base: usize, size: usize, pattern: &str) -> Option<usize> {
+    let data = read_memory(pid, base, size).ok()?;
 
     let pattern_bytes: Vec<Option<u8>> = pattern
         .split_whitespace()
@@ -72,7 +76,6 @@ pub fn aob_scan(pid: u32, module_name: &str, pattern: &str) -> Result<usize, Str
             window.iter().zip(&pattern_bytes).all(|(b, p)| p.map_or(true, |pb| *b == pb))
         })
         .map(|i| base + i)
-        .ok_or_else(|| "Pattern not found".to_string())
 }
 
 pub fn find_process_by_name(name: &str) -> Option<u32> {

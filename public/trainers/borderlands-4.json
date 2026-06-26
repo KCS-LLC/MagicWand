@@ -1,0 +1,159 @@
+{
+  "name": "Borderlands 4",
+  "executable": "Borderlands4.exe",
+  "cheats": [
+    {
+      "id": "bl4-health",
+      "name": "Current Health",
+      "type": "scan",
+      "valueType": "float",
+      "module": "",
+      "offsets": [],
+      "onValue": 9999
+    },
+    {
+      "id": "bl4-max-health",
+      "name": "Max Health",
+      "type": "scan",
+      "valueType": "float",
+      "module": "",
+      "offsets": [],
+      "onValue": 9999
+    },
+    {
+      "id": "bl4-shield",
+      "name": "Current Shield",
+      "type": "scan",
+      "valueType": "float",
+      "module": "",
+      "offsets": [],
+      "onValue": 9999
+    },
+    {
+      "id": "bl4-max-shield",
+      "name": "Max Shield",
+      "type": "scan",
+      "valueType": "float",
+      "module": "",
+      "offsets": [],
+      "onValue": 9999
+    },
+    {
+      "id": "bl4-ammo-pistol",
+      "name": "Pistol Ammo",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 999
+    },
+    {
+      "id": "bl4-ammo-smg",
+      "name": "SMG Ammo",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 999
+    },
+    {
+      "id": "bl4-ammo-shotgun",
+      "name": "Shotgun Ammo",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 999
+    },
+    {
+      "id": "bl4-ammo-ar",
+      "name": "Assault Rifle Ammo",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 999
+    },
+    {
+      "id": "bl4-ammo-sniper",
+      "name": "Sniper Ammo",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 999
+    },
+    {
+      "id": "bl4-ammo-rocket",
+      "name": "Rocket Launcher Ammo",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 999
+    },
+    {
+      "id": "bl4-cash",
+      "name": "Cash",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 9999999
+    },
+    {
+      "id": "bl4-eridium",
+      "name": "Eridium",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 9999
+    },
+    {
+      "id": "bl4-skill-points",
+      "name": "Skill Points",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 999
+    },
+    {
+      "id": "bl4-sdu-tokens",
+      "name": "SDU Tokens",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 99
+    },
+    {
+      "id": "bl4-inventory-space",
+      "name": "Inventory Space",
+      "type": "scan",
+      "valueType": "int",
+      "module": "",
+      "offsets": [],
+      "onValue": 999
+    },
+    {
+      "id": "bl4-drop-rate",
+      "name": "100% Drop Rate",
+      "type": "scan",
+      "valueType": "float",
+      "module": "",
+      "offsets": [],
+      "onValue": 100
+    },
+    {
+      "id": "bl4-legendary-drop-rate",
+      "name": "Max Legendary Drop Rate",
+      "type": "scan",
+      "valueType": "float",
+      "module": "",
+      "offsets": [],
+      "onValue": 100
+    }
+  ]
+}

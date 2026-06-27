@@ -30,7 +30,7 @@ impl Ue5Offsets {
             fproperty_offset_internal: 0x4C,
             gobjects_chunk_size:       0x10000,
             gobjects_objects:          0x00,
-            gobjects_num_elements:     0x0C,
+            gobjects_num_elements:     0x14,
             fname_stride:              2,
             fname_entry_header:        0x02,
             gnames_chunk_size:         0x20000,

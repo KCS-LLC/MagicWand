@@ -5,7 +5,7 @@ export interface Cheat {
   id: string;
   name: string;
   type: 'toggle' | 'action' | 'patch' | 'scan' | 'mono' | 'mono_chain' | 'ue5_prop';
-  valueType?: 'int' | 'float' | 'double';
+  valueType?: 'int' | 'float' | 'double' | 'byte';
   module: string;
   base?: string;
   signature?: string;
@@ -28,8 +28,11 @@ export interface Cheat {
   // ue5_prop-specific fields:
   ue5GObjectsAob?: string;
   ue5GNamesAob?: string;
+  ue5GObjectsOffset?: string;  // hex string offset for GObjects, e.g. "0x11765A30"
+  ue5GNamesOffset?: string;    // hex string offset for FNamePool.Blocks (= FNamePool + 0x10)
   ue5ClassName?: string;
   ue5PropertyOffset?: number;
+  ue5Offsets?: number[];       // optional pointer chain after obj_ptr + property_offset
   offValue?: number;
   active?: boolean;
   currentValue?: string | number;
@@ -41,9 +44,10 @@ export interface GameTrainer {
   cheats: Cheat[];
 }
 
-function memCmd(op: 'read' | 'write', valueType: 'int' | 'float' | 'double' | undefined): string {
+function memCmd(op: 'read' | 'write', valueType: 'int' | 'float' | 'double' | 'byte' | undefined): string {
   if (valueType === 'double') return `${op}_double`;
   if (valueType === 'float')  return `${op}_float`;
+  if (valueType === 'byte')   return `${op}_byte`;
   return `${op}_int`;
 }
 
@@ -120,8 +124,11 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
         moduleName: cheat.module,
         gobjectsAob: cheat.ue5GObjectsAob ?? '',
         gnamesAob: cheat.ue5GNamesAob ?? '',
+        gobjectsOffset: cheat.ue5GObjectsOffset ? parseInt(cheat.ue5GObjectsOffset, 16) : null,
+        gnamesOffset: cheat.ue5GNamesOffset ? parseInt(cheat.ue5GNamesOffset, 16) : null,
         className: cheat.ue5ClassName ?? '',
         propertyOffset: cheat.ue5PropertyOffset ?? 0,
+        extraOffsets: cheat.ue5Offsets ?? null,
       });
     } else {
       const modBase = await getModuleBaseRaw(cheat.module);
@@ -167,9 +174,15 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
                     const srcAddr = toHexAddr('0x' + (BigInt(addr) - BigInt(cheat.monoFinalOffset ?? 0) + BigInt(cheat.onValueFromOffset)).toString(16));
                     writeValue = await invoke<number>(memCmd('read', cheat.valueType), { pid: pidRef.current, address: srcAddr });
                   }
-                  await invoke(memCmd('write', cheat.valueType), { pid: pidRef.current, address: hexAddr, value: writeValue });
+                  if (cheat.valueType === 'byte') {
+                    await invoke('write_byte', { pid: pidRef.current, address: hexAddr, value: writeValue });
+                  } else {
+                    await invoke(memCmd('write', cheat.valueType), { pid: pidRef.current, address: hexAddr, value: writeValue });
+                  }
                 }
-                const val = await invoke<number>(memCmd('read', cheat.valueType), { pid: pidRef.current, address: hexAddr });
+                const val = cheat.valueType === 'byte'
+                  ? await invoke<number>('read_byte', { pid: pidRef.current, address: hexAddr })
+                  : await invoke<number>(memCmd('read', cheat.valueType), { pid: pidRef.current, address: hexAddr });
                 return { id: cheat.id, val };
               } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
@@ -242,17 +255,18 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
         const bytes = willBeActive ? cheat.onBytes : cheat.offBytes;
         await invoke('patch_bytes', { pid, address: hexAddr, bytes });
       } else if (cheat.type === 'ue5_prop' && !willBeActive && cheat.offValue !== undefined) {
-        await invoke(memCmd('write', cheat.valueType), {
-          pid,
-          address: hexAddr,
-          value: cheat.offValue,
-        });
+        if (cheat.valueType === 'byte') {
+          await invoke('write_byte', { pid, address: hexAddr, value: cheat.offValue });
+        } else {
+          await invoke(memCmd('write', cheat.valueType), { pid, address: hexAddr, value: cheat.offValue });
+        }
       } else if (willBeActive) {
-        await invoke(memCmd('write', cheat.valueType), {
-          pid,
-          address: hexAddr,
-          value: resolveWriteValue(cheat, customValueStr),
-        });
+        const wv = resolveWriteValue(cheat, customValueStr);
+        if (cheat.valueType === 'byte') {
+          await invoke('write_byte', { pid, address: hexAddr, value: wv });
+        } else {
+          await invoke(memCmd('write', cheat.valueType), { pid, address: hexAddr, value: wv });
+        }
       }
     } catch (err) {
       setActiveGame(prev => {

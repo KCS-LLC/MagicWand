@@ -15,6 +15,9 @@ dist-ssr
 # Local cheat table research files — never commit
 CT-Copy/
 
+# Local tools — cloned externally, not part of this repo
+tools/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

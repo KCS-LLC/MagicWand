@@ -153,17 +153,35 @@ fn resolve_ue5_prop(
     module_name: String,
     gobjects_aob: String,
     gnames_aob: String,
+    gobjects_offset: Option<usize>,
+    gnames_offset: Option<usize>,
     class_name: String,
     property_offset: usize,
+    extra_offsets: Option<Vec<usize>>,
 ) -> Result<String, String> {
     let (base, size) = engine::get_module_info(pid, &module_name)
         .ok_or_else(|| format!("Module '{}' not found", module_name))?;
-    let addr = ue5::resolve_ue5_prop(
-        pid, base, size,
-        &gobjects_aob, &gnames_aob,
-        &class_name, property_offset,
-    )?;
+    let chain = extra_offsets.as_deref().unwrap_or(&[]);
+    let addr = if let (Some(go), Some(gn)) = (gobjects_offset, gnames_offset) {
+        ue5::resolve_ue5_prop_static(pid, base, go, gn, &class_name, property_offset, chain)?
+    } else {
+        ue5::resolve_ue5_prop(pid, base, size, &gobjects_aob, &gnames_aob, &class_name, property_offset, chain)?
+    };
     Ok(format!("0x{:X}", addr))
+}
+
+#[tauri::command]
+fn write_byte(pid: u32, address: String, value: u8) -> Result<(), String> {
+    let addr = parse_addr(&address)?;
+    engine::patch_memory(pid, addr as usize, &[value])
+}
+
+#[tauri::command]
+fn read_byte(pid: u32, address: String) -> Result<u8, String> {
+    let addr = parse_addr(&address)?;
+    let data = engine::read_memory(pid, addr as usize, 1)
+        .map_err(|e| e.to_string())?;
+    Ok(data[0])
 }
 
 #[tauri::command]
@@ -193,7 +211,9 @@ pub fn run() {
             patch_bytes,
             resolve_mono_field,
             resolve_mono_chain,
-            resolve_ue5_prop
+            resolve_ue5_prop,
+            write_byte,
+            read_byte
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

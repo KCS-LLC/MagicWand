@@ -133,6 +133,7 @@ pub fn resolve_ue5_prop(
     gnames_aob: &str,
     class_name: &str,
     property_offset: usize,
+    extra_offsets: &[usize],
 ) -> Result<usize, String> {
     let off = Ue5Offsets::ue5_default();
 
@@ -143,6 +144,37 @@ pub fn resolve_ue5_prop(
         .ok_or("Could not resolve GNames from AOB")?;
 
     let obj_ptr = find_object_by_class(pid, gobjects_base, gnames_base, class_name, &off)?;
+    let initial = obj_ptr + property_offset;
 
-    Ok(obj_ptr + property_offset)
+    if extra_offsets.is_empty() {
+        Ok(initial)
+    } else {
+        crate::engine::resolve_pointer_path(pid, initial, extra_offsets)
+    }
+}
+
+// Uses static module offsets instead of AOB scanning.
+// gobjects_offset: offset of GObjects global from module base
+// gnames_offset:   offset of FNamePool.Blocks from module base (= FNamePool + 0x10)
+// extra_offsets:   optional pointer chain applied after obj_ptr + property_offset
+pub fn resolve_ue5_prop_static(
+    pid: u32,
+    module_base: usize,
+    gobjects_offset: usize,
+    gnames_offset: usize,
+    class_name: &str,
+    property_offset: usize,
+    extra_offsets: &[usize],
+) -> Result<usize, String> {
+    let off = Ue5Offsets::ue5_default();
+    let gobjects_base = module_base + gobjects_offset;
+    let gnames_base   = module_base + gnames_offset;
+    let obj_ptr = find_object_by_class(pid, gobjects_base, gnames_base, class_name, &off)?;
+    let initial = obj_ptr + property_offset;
+
+    if extra_offsets.is_empty() {
+        Ok(initial)
+    } else {
+        crate::engine::resolve_pointer_path(pid, initial, extra_offsets)
+    }
 }

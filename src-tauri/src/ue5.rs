@@ -48,11 +48,6 @@ fn read_i32(pid: u32, addr: usize) -> Option<i32> {
     read_u32(pid, addr).map(|v| v as i32)
 }
 
-fn read_string(pid: u32, addr: usize, max_len: usize) -> Option<String> {
-    let buf = read_memory(pid, addr, max_len).ok()?;
-    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    String::from_utf8(buf[..end].to_vec()).ok()
-}
 
 fn resolve_rip_relative(
     pid: u32,
@@ -75,7 +70,16 @@ fn fname_to_string(pid: u32, gnames_base: usize, fname_index: i32, off: &Ue5Offs
     let entry_off = (idx % entries_per_chunk) * off.fname_stride;
     let chunk_ptr = read_ptr(pid, gnames_base + chunk_idx * 8)?;
     let entry_addr = chunk_ptr + entry_off;
-    read_string(pid, entry_addr + off.fname_entry_header, 128)
+
+    // UE5 FNameEntryHeader (2 bytes): bit[0]=bIsWide, bits[15:6]=Len.
+    // Strings are length-delimited, not null-terminated.
+    let hdr_bytes = read_memory(pid, entry_addr, 2).ok()?;
+    let hdr = u16::from_le_bytes([hdr_bytes[0], hdr_bytes[1]]);
+    let str_len = (hdr >> 6) as usize;
+    if str_len == 0 || str_len > 1024 { return None; }
+
+    let raw = read_memory(pid, entry_addr + off.fname_entry_header, str_len).ok()?;
+    String::from_utf8(raw).ok()
 }
 
 // Walk the SuperStruct chain to check if a UClass inherits from target_class.
@@ -152,6 +156,12 @@ pub fn find_object_by_class(
             );
             if obj_ptr == 0 || obj_ptr > 0x0000_7FFF_FFFF_FFFF { continue; }
 
+            // Skip Class Default Objects and Archetypes — they have zeroed/default values.
+            // ObjectFlags at UObject+0x08: RF_ClassDefaultObject=0x10, RF_ArchetypeObject=0x20.
+            if let Some(flags) = read_u32(pid, obj_ptr + 0x08) {
+                if flags & 0x30 != 0 { continue; }
+            }
+
             let class_ptr = match read_ptr(pid, obj_ptr + off.uobject_class) {
                 Some(p) if p != 0 => p,
                 _ => continue,
@@ -175,7 +185,8 @@ pub fn find_object_by_class(
             };
 
             if matches {
-                eprintln!("[ue5] found '{}' object at 0x{:X}", target_class, obj_ptr);
+                let flags = read_u32(pid, obj_ptr + 0x08).unwrap_or(0);
+                eprintln!("[ue5] found '{}' object at 0x{:X} (ObjFlags=0x{:08X})", target_class, obj_ptr, flags);
                 return Ok(obj_ptr);
             }
         }
@@ -183,8 +194,17 @@ pub fn find_object_by_class(
 
     seen_names.sort();
     seen_names.dedup();
-    eprintln!("[ue5] '{}' not found. {} unique classes in GObjects: {:?}",
-        target_class, seen_names.len(), &seen_names);
+    // Print a short filtered list of character/pawn/player-like names first so they're easy to spot.
+    let char_names: Vec<&str> = seen_names.iter()
+        .filter(|n| {
+            let low = n.to_lowercase();
+            low.contains("character") || low.contains("pawn") || low.contains("player")
+                || low.contains("vault") || low.contains("hunter") || low.contains("oak")
+        })
+        .map(|s| s.as_str())
+        .collect();
+    eprintln!("[ue5] '{}' not found. Character/Player-like classes: {:?}", target_class, char_names);
+    eprintln!("[ue5] Full class list ({} unique): {:?}", seen_names.len(), &seen_names);
     Err(format!("No object with class '{}' found in GObjects", target_class))
 }
 

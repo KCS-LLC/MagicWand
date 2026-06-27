@@ -1,4 +1,5 @@
 use crate::engine::{read_memory, aob_scan_range};
+use std::collections::HashMap;
 
 pub struct Ue5Offsets {
     pub fuobjectitem_size: usize,
@@ -104,31 +105,64 @@ pub fn find_object_by_class(
 ) -> Result<usize, String> {
     let num_elements = read_u32(pid, gobjects_base + off.gobjects_num_elements)
         .ok_or("Could not read GObjects.NumElements")? as usize;
+
+    if num_elements == 0 || num_elements > 2_000_000 {
+        return Err(format!("GObjects.NumElements={} looks invalid", num_elements));
+    }
+
     let objects_ptr = read_ptr(pid, gobjects_base + off.gobjects_objects)
         .ok_or("Could not read GObjects.Objects")?;
 
-    for i in 0..num_elements {
-        let chunk_idx = i / off.gobjects_chunk_size;
-        let item_idx = i % off.gobjects_chunk_size;
+    eprintln!("[ue5] scanning {} objects for class '{}'", num_elements, target_class);
+
+    // Cache class_ptr → matches so each unique class is walked only once.
+    let mut class_cache: HashMap<usize, bool> = HashMap::new();
+    let num_chunks = (num_elements + off.gobjects_chunk_size - 1) / off.gobjects_chunk_size;
+
+    for chunk_idx in 0..num_chunks {
         let chunk_ptr = match read_ptr(pid, objects_ptr + chunk_idx * 8) {
             Some(p) if p != 0 => p,
             _ => continue,
         };
-        let item_addr = chunk_ptr + item_idx * off.fuobjectitem_size;
-        let obj_ptr = match read_ptr(pid, item_addr + off.fuobjectitem_object) {
-            Some(p) if p != 0 => p,
-            _ => continue,
+
+        let items_start = chunk_idx * off.gobjects_chunk_size;
+        let items_in_chunk = (num_elements - items_start).min(off.gobjects_chunk_size);
+
+        // Bulk-read the entire chunk: one RPM call instead of one per item.
+        let chunk_bytes = match read_memory(pid, chunk_ptr, items_in_chunk * off.fuobjectitem_size) {
+            Ok(b) => b,
+            Err(_) => continue,
         };
 
-        let class_ptr = match read_ptr(pid, obj_ptr + off.uobject_class) {
-            Some(p) if p != 0 => p,
-            _ => continue,
-        };
-        if class_inherits_from(pid, gnames_base, class_ptr, target_class, off) {
-            return Ok(obj_ptr);
+        for item_idx in 0..items_in_chunk {
+            let item_base = item_idx * off.fuobjectitem_size + off.fuobjectitem_object;
+            if item_base + 8 > chunk_bytes.len() { continue; }
+
+            let obj_ptr = usize::from_le_bytes(
+                match chunk_bytes[item_base..item_base + 8].try_into() {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                }
+            );
+            if obj_ptr == 0 { continue; }
+
+            let class_ptr = match read_ptr(pid, obj_ptr + off.uobject_class) {
+                Some(p) if p != 0 => p,
+                _ => continue,
+            };
+
+            let matches = *class_cache.entry(class_ptr).or_insert_with(|| {
+                class_inherits_from(pid, gnames_base, class_ptr, target_class, off)
+            });
+
+            if matches {
+                eprintln!("[ue5] found '{}' object at 0x{:X}", target_class, obj_ptr);
+                return Ok(obj_ptr);
+            }
         }
     }
 
+    eprintln!("[ue5] '{}' not found after scanning {} elements", target_class, num_elements);
     Err(format!("No object with class '{}' found in GObjects", target_class))
 }
 
@@ -152,11 +186,14 @@ pub fn resolve_ue5_prop(
 
     let obj_ptr = find_object_by_class(pid, gobjects_base, gnames_base, class_name, &off)?;
     let initial = obj_ptr + property_offset;
+    eprintln!("[ue5/aob] obj_ptr=0x{:X}  initial=0x{:X}  extra_offsets={:?}", obj_ptr, initial, extra_offsets);
 
     if extra_offsets.is_empty() {
         Ok(initial)
     } else {
-        crate::engine::resolve_pointer_path(pid, initial, extra_offsets)
+        let result = crate::engine::resolve_pointer_path(pid, initial, extra_offsets);
+        eprintln!("[ue5/aob] pointer_path result={:?}", result);
+        result
     }
 }
 
@@ -178,10 +215,13 @@ pub fn resolve_ue5_prop_static(
     let gnames_base   = module_base + gnames_offset;
     let obj_ptr = find_object_by_class(pid, gobjects_base, gnames_base, class_name, &off)?;
     let initial = obj_ptr + property_offset;
+    eprintln!("[ue5/static] obj_ptr=0x{:X}  initial=0x{:X}  extra_offsets={:?}", obj_ptr, initial, extra_offsets);
 
     if extra_offsets.is_empty() {
         Ok(initial)
     } else {
-        crate::engine::resolve_pointer_path(pid, initial, extra_offsets)
+        let result = crate::engine::resolve_pointer_path(pid, initial, extra_offsets);
+        eprintln!("[ue5/static] pointer_path result={:?}", result);
+        result
     }
 }

@@ -121,9 +121,13 @@ pub fn resolve_pointer_path(pid: u32, base_address: usize, offsets: &[usize]) ->
     for &offset in offsets {
         let data = read_memory(pid, current, std::mem::size_of::<usize>())?;
         #[cfg(target_pointer_width = "64")]
-        { current = usize::from_le_bytes(data.try_into().unwrap()) + offset; }
+        let ptr = usize::from_le_bytes(data.try_into().unwrap());
         #[cfg(target_pointer_width = "32")]
-        { current = u32::from_le_bytes(data.try_into().unwrap()) as usize + offset; }
+        let ptr = u32::from_le_bytes(data.try_into().unwrap()) as usize;
+        if ptr == 0 {
+            return Err(format!("Null pointer at 0x{:X} in pointer chain", current));
+        }
+        current = ptr + offset;
     }
     Ok(current)
 }

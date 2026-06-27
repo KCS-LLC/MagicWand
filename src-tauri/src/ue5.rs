@@ -76,9 +76,9 @@ fn fname_to_string(pid: u32, gnames_base: usize, fname_index: i32, off: &Ue5Offs
 }
 
 // Walk the SuperStruct chain to check if a UClass inherits from target_class.
-// SuperStruct is at UClass+0x40 in UE5.5.
+// UStruct::SuperStruct is at 0x30: UObjectBase(0x28) + UField::Next(8) = 0x30.
 fn class_inherits_from(pid: u32, gnames_base: usize, mut class_ptr: usize, target: &str, off: &Ue5Offsets) -> bool {
-    const SUPER_OFFSET: usize = 0x40;
+    const SUPER_OFFSET: usize = 0x30;
     for _ in 0..20 {
         if class_ptr == 0 { break; }
         let fname_idx = match read_i32(pid, class_ptr + off.uobject_name) {
@@ -216,6 +216,9 @@ pub fn resolve_ue5_prop_static(
     let obj_ptr = find_object_by_class(pid, gobjects_base, gnames_base, class_name, &off)?;
     let initial = obj_ptr + property_offset;
     eprintln!("[ue5/static] obj_ptr=0x{:X}  initial=0x{:X}  extra_offsets={:?}", obj_ptr, initial, extra_offsets);
+    if let Ok(dump) = read_memory(pid, initial, 32) {
+        eprintln!("[ue5/static] bytes at initial: {:02X?}", &dump[..]);
+    }
 
     if extra_offsets.is_empty() {
         Ok(initial)

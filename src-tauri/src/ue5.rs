@@ -1,5 +1,8 @@
 use crate::engine::{read_memory, aob_scan_range};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static OBJ_DUMP_DONE: AtomicBool = AtomicBool::new(false);
 
 pub struct Ue5Offsets {
     pub fuobjectitem_size: usize,
@@ -118,6 +121,8 @@ pub fn find_object_by_class(
 
     // Cache class_ptr → matches so each unique class is walked only once.
     let mut class_cache: HashMap<usize, bool> = HashMap::new();
+    // Collect direct class names for diagnostics (populated per unique class_ptr).
+    let mut seen_names: Vec<String> = Vec::new();
     let num_chunks = (num_elements + off.gobjects_chunk_size - 1) / off.gobjects_chunk_size;
 
     for chunk_idx in 0..num_chunks {
@@ -152,9 +157,22 @@ pub fn find_object_by_class(
                 _ => continue,
             };
 
-            let matches = *class_cache.entry(class_ptr).or_insert_with(|| {
-                class_inherits_from(pid, gnames_base, class_ptr, target_class, off)
-            });
+            // Manual entry to allow collecting names alongside the cache insert.
+            let matches = if let Some(&cached) = class_cache.get(&class_ptr) {
+                cached
+            } else {
+                // Collect direct FName for diagnostic output.
+                if let Some(i) = read_i32(pid, class_ptr + off.uobject_name) {
+                    if i >= 0 {
+                        if let Some(name) = fname_to_string(pid, gnames_base, i, off) {
+                            seen_names.push(name);
+                        }
+                    }
+                }
+                let result = class_inherits_from(pid, gnames_base, class_ptr, target_class, off);
+                class_cache.insert(class_ptr, result);
+                result
+            };
 
             if matches {
                 eprintln!("[ue5] found '{}' object at 0x{:X}", target_class, obj_ptr);
@@ -163,7 +181,10 @@ pub fn find_object_by_class(
         }
     }
 
-    eprintln!("[ue5] '{}' not found after scanning {} elements", target_class, num_elements);
+    seen_names.sort();
+    seen_names.dedup();
+    eprintln!("[ue5] '{}' not found. {} unique classes in GObjects: {:?}",
+        target_class, seen_names.len(), &seen_names);
     Err(format!("No object with class '{}' found in GObjects", target_class))
 }
 
@@ -226,6 +247,21 @@ pub fn resolve_ue5_prop_static(
     } else {
         let result = crate::engine::resolve_pointer_path(pid, initial, extra_offsets);
         eprintln!("[ue5/static] pointer_path result={:?}", result);
+
+        // One-time diagnostic: dump 256 bytes of the object around property_offset
+        // so we can find the correct offset when the pointer chain fails.
+        if result.is_err() && !OBJ_DUMP_DONE.swap(true, Ordering::Relaxed) {
+            let dump_start = obj_ptr + property_offset.saturating_sub(0x40);
+            eprintln!("[ue5/diag] 256 bytes of object @ obj+{:#X} (property_offset={:#X}):",
+                property_offset.saturating_sub(0x40), property_offset);
+            if let Ok(dump) = read_memory(pid, dump_start, 256) {
+                for (i, row) in dump.chunks(16).enumerate() {
+                    let off_label = property_offset.saturating_sub(0x40) + i * 16;
+                    eprintln!("[ue5/diag] +{:#06X}: {:02X?}", off_label, row);
+                }
+            }
+        }
+
         result
     }
 }

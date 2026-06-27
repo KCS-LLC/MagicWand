@@ -1,6 +1,7 @@
 mod engine;
 mod mono;
 mod scanner;
+mod ue5;
 
 #[tauri::command]
 fn scan_games() -> Vec<scanner::DetectedGame> {
@@ -147,6 +148,25 @@ fn resolve_mono_field(
 }
 
 #[tauri::command]
+fn resolve_ue5_prop(
+    pid: u32,
+    module_name: String,
+    gobjects_aob: String,
+    gnames_aob: String,
+    class_name: String,
+    property_offset: usize,
+) -> Result<String, String> {
+    let (base, size) = engine::get_module_info(pid, &module_name)
+        .ok_or_else(|| format!("Module '{}' not found", module_name))?;
+    let addr = ue5::resolve_ue5_prop(
+        pid, base, size,
+        &gobjects_aob, &gnames_aob,
+        &class_name, property_offset,
+    )?;
+    Ok(format!("0x{:X}", addr))
+}
+
+#[tauri::command]
 fn patch_bytes(pid: u32, address: String, bytes: Vec<u8>) -> Result<(), String> {
     let addr = parse_addr(&address)?;
     engine::patch_memory(pid, addr as usize, &bytes)
@@ -172,7 +192,8 @@ pub fn run() {
             scan_value,
             patch_bytes,
             resolve_mono_field,
-            resolve_mono_chain
+            resolve_mono_chain,
+            resolve_ue5_prop
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

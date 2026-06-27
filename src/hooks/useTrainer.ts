@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 export interface Cheat {
   id: string;
   name: string;
-  type: 'toggle' | 'action' | 'patch' | 'scan' | 'mono' | 'mono_chain';
+  type: 'toggle' | 'action' | 'patch' | 'scan' | 'mono' | 'mono_chain' | 'ue5_prop';
   valueType?: 'int' | 'float' | 'double';
   module: string;
   base?: string;
@@ -25,6 +25,12 @@ export interface Cheat {
   monoInstanceFieldIsRef?: boolean;
   monoFinalOffset?: number;
   onValueFromOffset?: number;
+  // ue5_prop-specific fields:
+  ue5GObjectsAob?: string;
+  ue5GNamesAob?: string;
+  ue5ClassName?: string;
+  ue5PropertyOffset?: number;
+  offValue?: number;
   active?: boolean;
   currentValue?: string | number;
 }
@@ -81,7 +87,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
 
   const resolveCheatAddress = async (cheat: Cheat): Promise<string> => {
     if (!pidRef.current) throw new Error('Not connected');
-    if (cheat.type !== 'mono_chain' && addressCache.current[cheat.id]) return addressCache.current[cheat.id];
+    if (cheat.type !== 'mono_chain' && cheat.type !== 'ue5_prop' && addressCache.current[cheat.id]) return addressCache.current[cheat.id];
 
     let finalAddr: string;
 
@@ -107,6 +113,15 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
         instanceField: cheat.monoInstanceField ?? '',
         finalOffset: cheat.monoFinalOffset ?? 0,
         instanceFieldIsRef: cheat.monoInstanceFieldIsRef ?? false,
+      });
+    } else if (cheat.type === 'ue5_prop') {
+      finalAddr = await invoke<string>('resolve_ue5_prop', {
+        pid: pidRef.current,
+        moduleName: cheat.module,
+        gobjectsAob: cheat.ue5GObjectsAob ?? '',
+        gnamesAob: cheat.ue5GNamesAob ?? '',
+        className: cheat.ue5ClassName ?? '',
+        propertyOffset: cheat.ue5PropertyOffset ?? 0,
       });
     } else {
       const modBase = await getModuleBaseRaw(cheat.module);
@@ -146,7 +161,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
               try {
                 const addr = await resolveCheatAddress(cheat);
                 const hexAddr = toHexAddr(addr);
-                if ((cheat.type === 'toggle' || cheat.type === 'mono_chain') && cheat.active && cheat.valueType) {
+                if ((cheat.type === 'toggle' || cheat.type === 'mono_chain' || cheat.type === 'ue5_prop') && cheat.active && cheat.valueType) {
                   let writeValue = cheat.onValue;
                   if (cheat.onValueFromOffset != null) {
                     const srcAddr = toHexAddr('0x' + (BigInt(addr) - BigInt(cheat.monoFinalOffset ?? 0) + BigInt(cheat.onValueFromOffset)).toString(16));
@@ -226,6 +241,12 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
       if (cheat.type === 'patch') {
         const bytes = willBeActive ? cheat.onBytes : cheat.offBytes;
         await invoke('patch_bytes', { pid, address: hexAddr, bytes });
+      } else if (cheat.type === 'ue5_prop' && !willBeActive && cheat.offValue !== undefined) {
+        await invoke(memCmd('write', cheat.valueType), {
+          pid,
+          address: hexAddr,
+          value: cheat.offValue,
+        });
       } else if (willBeActive) {
         await invoke(memCmd('write', cheat.valueType), {
           pid,

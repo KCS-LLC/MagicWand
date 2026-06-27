@@ -180,7 +180,7 @@ function App() {
                       <span className="cheat-name">{cheat.name}</span>
                       <span className={`cheat-type-badge cheat-type-${cheat.type}`}>{cheat.type}</span>
                     </div>
-                    {cheat.type !== 'scan' && cheat.type !== 'mono' && (
+                    {cheat.type !== 'scan' && cheat.type !== 'mono' && cheat.type !== 'ue5_prop' && (
                       <span className="live-value">
                         {cheat.currentValue !== undefined ? `Value: ${typeof cheat.currentValue === 'number' ? cheat.currentValue.toFixed(2) : cheat.currentValue}` : 'Detecting...'}
                       </span>

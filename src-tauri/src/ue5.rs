@@ -80,7 +80,8 @@ fn fname_to_string(pid: u32, gnames_base: usize, fname_index: i32, off: &Ue5Offs
 fn class_inherits_from(pid: u32, gnames_base: usize, mut class_ptr: usize, target: &str, off: &Ue5Offsets) -> bool {
     const SUPER_OFFSET: usize = 0x30;
     for _ in 0..20 {
-        if class_ptr == 0 { break; }
+        // Reject null and non-canonical (kernel/garbage) addresses before any arithmetic.
+        if class_ptr == 0 || class_ptr > 0x0000_7FFF_FFFF_FFFF { break; }
         let fname_idx = match read_i32(pid, class_ptr + off.uobject_name) {
             Some(i) if i >= 0 => i,
             _ => break,
@@ -144,7 +145,7 @@ pub fn find_object_by_class(
                     Err(_) => continue,
                 }
             );
-            if obj_ptr == 0 { continue; }
+            if obj_ptr == 0 || obj_ptr > 0x0000_7FFF_FFFF_FFFF { continue; }
 
             let class_ptr = match read_ptr(pid, obj_ptr + off.uobject_class) {
                 Some(p) if p != 0 => p,

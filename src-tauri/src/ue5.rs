@@ -82,6 +82,27 @@ fn fname_to_string(pid: u32, gnames_base: usize, fname_index: i32, off: &Ue5Offs
     read_string(pid, entry_addr + off.fname_entry_header, 128)
 }
 
+// Walk the SuperStruct chain to check if a UClass inherits from target_class.
+// SuperStruct is at UClass+0x40 in UE5.5.
+fn class_inherits_from(pid: u32, gnames_base: usize, mut class_ptr: usize, target: &str, off: &Ue5Offsets) -> bool {
+    const SUPER_OFFSET: usize = 0x40;
+    for _ in 0..20 {
+        if class_ptr == 0 { break; }
+        let fname_idx = match read_i32(pid, class_ptr + off.uobject_name) {
+            Some(i) if i >= 0 => i,
+            _ => break,
+        };
+        if let Some(name) = fname_to_string(pid, gnames_base, fname_idx, off) {
+            if name == target { return true; }
+        }
+        class_ptr = match read_ptr(pid, class_ptr + SUPER_OFFSET) {
+            Some(p) => p,
+            None => break,
+        };
+    }
+    false
+}
+
 pub fn find_object_by_class(
     pid: u32,
     gobjects_base: usize,
@@ -111,14 +132,8 @@ pub fn find_object_by_class(
             Some(p) if p != 0 => p,
             _ => continue,
         };
-        let class_fname_idx = match read_i32(pid, class_ptr + off.uobject_name) {
-            Some(i) if i >= 0 => i,
-            _ => continue,
-        };
-        if let Some(name) = fname_to_string(pid, gnames_base, class_fname_idx, off) {
-            if name == target_class {
-                return Ok(obj_ptr);
-            }
+        if class_inherits_from(pid, gnames_base, class_ptr, target_class, off) {
+            return Ok(obj_ptr);
         }
     }
 

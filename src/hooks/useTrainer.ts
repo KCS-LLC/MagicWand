@@ -91,7 +91,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
 
   const resolveCheatAddress = async (cheat: Cheat): Promise<string> => {
     if (!pidRef.current) throw new Error('Not connected');
-    if (cheat.type !== 'mono_chain' && cheat.type !== 'ue5_prop' && addressCache.current[cheat.id]) return addressCache.current[cheat.id];
+    if (cheat.type !== 'mono_chain' && addressCache.current[cheat.id]) return addressCache.current[cheat.id];
 
     let finalAddr: string;
 
@@ -187,6 +187,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
               } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 onCheatError?.(cheat.id, msg);
+                delete addressCache.current[cheat.id];
                 return { id: cheat.id, val: '???' };
               }
             })

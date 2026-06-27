@@ -5,10 +5,6 @@ pub struct Ue5Offsets {
     pub fuobjectitem_object: usize,
     pub uobject_class: usize,
     pub uobject_name: usize,
-    pub uclass_children: usize,
-    pub ffield_next: usize,
-    pub ffield_name: usize,
-    pub fproperty_offset_internal: usize,
     pub gobjects_chunk_size: usize,
     pub gobjects_objects: usize,
     pub gobjects_num_elements: usize,
@@ -20,20 +16,16 @@ pub struct Ue5Offsets {
 impl Ue5Offsets {
     pub fn ue5_default() -> Self {
         Ue5Offsets {
-            fuobjectitem_size:         0x18,
-            fuobjectitem_object:       0x00,
-            uobject_class:             0x10,
-            uobject_name:              0x18,
-            uclass_children:           0x50,
-            ffield_next:               0x20,
-            ffield_name:               0x28,
-            fproperty_offset_internal: 0x4C,
-            gobjects_chunk_size:       0x10000,
-            gobjects_objects:          0x00,
-            gobjects_num_elements:     0x14,
-            fname_stride:              2,
-            fname_entry_header:        0x02,
-            gnames_chunk_size:         0x20000,
+            fuobjectitem_size:     0x18,
+            fuobjectitem_object:   0x00,
+            uobject_class:         0x10,
+            uobject_name:          0x18,
+            gobjects_chunk_size:   0x10000,
+            gobjects_objects:      0x00,
+            gobjects_num_elements: 0x14,
+            fname_stride:          2,
+            fname_entry_header:    0x02,
+            gnames_chunk_size:     0x20000,
         }
     }
 }

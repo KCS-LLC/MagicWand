@@ -121,7 +121,7 @@ pub fn find_object_by_class(
     let objects_ptr = read_ptr(pid, gobjects_base + off.gobjects_objects)
         .ok_or("Could not read GObjects.Objects")?;
 
-    eprintln!("[ue5] scanning {} objects for class '{}'", num_elements, target_class);
+    crate::mwlog!("[ue5] scanning {} objects for class '{}'", num_elements, target_class);
 
     // Cache class_ptr → matches so each unique class is walked only once.
     let mut class_cache: HashMap<usize, bool> = HashMap::new();
@@ -186,7 +186,7 @@ pub fn find_object_by_class(
 
             if matches {
                 let flags = read_u32(pid, obj_ptr + 0x08).unwrap_or(0);
-                eprintln!("[ue5] found '{}' object at 0x{:X} (ObjFlags=0x{:08X})", target_class, obj_ptr, flags);
+                crate::mwlog!("[ue5] found '{}' object at 0x{:X} (ObjFlags=0x{:08X})", target_class, obj_ptr, flags);
                 return Ok(obj_ptr);
             }
         }
@@ -203,8 +203,8 @@ pub fn find_object_by_class(
         })
         .map(|s| s.as_str())
         .collect();
-    eprintln!("[ue5] '{}' not found. Character/Player-like classes: {:?}", target_class, char_names);
-    eprintln!("[ue5] Full class list ({} unique): {:?}", seen_names.len(), &seen_names);
+    crate::mwlog!("[ue5] '{}' not found. Character/Player-like classes: {:?}", target_class, char_names);
+    crate::mwlog!("[ue5] Full class list ({} unique): {:?}", seen_names.len(), &seen_names);
     Err(format!("No object with class '{}' found in GObjects", target_class))
 }
 
@@ -228,13 +228,13 @@ pub fn resolve_ue5_prop(
 
     let obj_ptr = find_object_by_class(pid, gobjects_base, gnames_base, class_name, &off)?;
     let initial = obj_ptr + property_offset;
-    eprintln!("[ue5/aob] obj_ptr=0x{:X}  initial=0x{:X}  extra_offsets={:?}", obj_ptr, initial, extra_offsets);
+    crate::mwlog!("[ue5/aob] obj_ptr=0x{:X}  initial=0x{:X}  extra_offsets={:?}", obj_ptr, initial, extra_offsets);
 
     if extra_offsets.is_empty() {
         Ok(initial)
     } else {
         let result = crate::engine::resolve_pointer_path(pid, initial, extra_offsets);
-        eprintln!("[ue5/aob] pointer_path result={:?}", result);
+        crate::mwlog!("[ue5/aob] pointer_path result={:?}", result);
         result
     }
 }
@@ -257,27 +257,27 @@ pub fn resolve_ue5_prop_static(
     let gnames_base   = module_base + gnames_offset;
     let obj_ptr = find_object_by_class(pid, gobjects_base, gnames_base, class_name, &off)?;
     let initial = obj_ptr + property_offset;
-    eprintln!("[ue5/static] obj_ptr=0x{:X}  initial=0x{:X}  extra_offsets={:?}", obj_ptr, initial, extra_offsets);
+    crate::mwlog!("[ue5/static] obj_ptr=0x{:X}  initial=0x{:X}  extra_offsets={:?}", obj_ptr, initial, extra_offsets);
     if let Ok(dump) = read_memory(pid, initial, 32) {
-        eprintln!("[ue5/static] bytes at initial: {:02X?}", &dump[..]);
+        crate::mwlog!("[ue5/static] bytes at initial: {:02X?}", &dump[..]);
     }
 
     if extra_offsets.is_empty() {
         Ok(initial)
     } else {
         let result = crate::engine::resolve_pointer_path(pid, initial, extra_offsets);
-        eprintln!("[ue5/static] pointer_path result={:?}", result);
+        crate::mwlog!("[ue5/static] pointer_path result={:?}", result);
 
         // One-time diagnostic: dump 256 bytes of the object around property_offset
         // so we can find the correct offset when the pointer chain fails.
         if result.is_err() && !OBJ_DUMP_DONE.swap(true, Ordering::Relaxed) {
             let dump_start = obj_ptr + property_offset.saturating_sub(0x40);
-            eprintln!("[ue5/diag] 256 bytes of object @ obj+{:#X} (property_offset={:#X}):",
+            crate::mwlog!("[ue5/diag] 256 bytes of object @ obj+{:#X} (property_offset={:#X}):",
                 property_offset.saturating_sub(0x40), property_offset);
             if let Ok(dump) = read_memory(pid, dump_start, 256) {
                 for (i, row) in dump.chunks(16).enumerate() {
                     let off_label = property_offset.saturating_sub(0x40) + i * 16;
-                    eprintln!("[ue5/diag] +{:#06X}: {:02X?}", off_label, row);
+                    crate::mwlog!("[ue5/diag] +{:#06X}: {:02X?}", off_label, row);
                 }
             }
         }

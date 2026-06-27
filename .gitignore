@@ -18,6 +18,9 @@ CT-Copy/
 # Local tools — cloned externally, not part of this repo
 tools/
 
+# Runtime log files
+*.log
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

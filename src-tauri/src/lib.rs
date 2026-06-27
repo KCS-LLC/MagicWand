@@ -1,4 +1,5 @@
 mod engine;
+mod logger;
 mod mono;
 mod scanner;
 mod ue5;
@@ -192,6 +193,12 @@ fn patch_bytes(pid: u32, address: String, bytes: Vec<u8>) -> Result<(), String> 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let log_path = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("magic-wand.log")))
+        .unwrap_or_else(|| std::path::PathBuf::from("magic-wand.log"));
+    logger::init(&log_path);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())

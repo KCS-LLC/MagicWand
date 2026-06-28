@@ -321,9 +321,9 @@ function App() {
                         extraOffsets: null,
                       });
                       setDiffStatus(`Found at ${addr} — dumping floats...`);
-                      const lines = await invoke<string[]>('dump_floats_at', { pid, address: addr, count: 128 });
+                      const lines = await invoke<string[]>('dump_floats_at', { pid, address: addr, count: 256 });
                       setDiffResults([`Object: ${addr}`, ...lines]);
-                      setDiffStatus(`Dumped 128 floats from NexusConfigStoreInventoryRarity`);
+                      setDiffStatus(`Dumped 256 floats from NexusConfigStoreInventoryRarity`);
                     } catch (e) { setDiffStatus(String(e)); }
                   }}>Dump Rarity Obj</button>
                 </div>

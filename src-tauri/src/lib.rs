@@ -239,9 +239,11 @@ fn dump_floats_at(pid: u32, address: String, count: usize) -> Result<Vec<String>
     let addr = parse_addr(&address)? as usize;
     let bytes = engine::read_memory(pid, addr, count * 4)?;
     let lines = bytes.chunks(4).enumerate().map(|(i, chunk)| {
-        let f = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-        let hex: String = chunk.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ");
-        format!("+0x{:03X}  {:>12.6}  [{}]", i * 4, f, hex)
+        let b = [chunk[0], chunk[1], chunk[2], chunk[3]];
+        let f = f32::from_le_bytes(b);
+        let u = u32::from_le_bytes(b);
+        let hex: String = b.iter().map(|x| format!("{:02X}", x)).collect::<Vec<_>>().join(" ");
+        format!("+0x{:03X}  f:{:>14.6}  i:{:>10}  [{}]", i * 4, f, u, hex)
     }).collect();
     Ok(lines)
 }

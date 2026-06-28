@@ -2,7 +2,7 @@ use crate::engine::{read_memory, aob_scan_range};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-static OBJ_DUMP_DONE: AtomicBool = AtomicBool::new(false);
+static PAWN_DIAG_DONE: AtomicBool = AtomicBool::new(false);
 
 pub struct Ue5Offsets {
     pub fuobjectitem_size: usize,
@@ -47,7 +47,6 @@ fn read_u32(pid: u32, addr: usize) -> Option<u32> {
 fn read_i32(pid: u32, addr: usize) -> Option<i32> {
     read_u32(pid, addr).map(|v| v as i32)
 }
-
 
 fn resolve_rip_relative(
     pid: u32,
@@ -204,7 +203,8 @@ pub fn find_object_by_class(
         .map(|s| s.as_str())
         .collect();
     crate::mwlog!("[ue5] '{}' not found. Character/Player-like classes: {:?}", target_class, char_names);
-    crate::mwlog!("[ue5] Full class list ({} unique): {:?}", seen_names.len(), &seen_names);
+    let preview: Vec<&str> = seen_names.iter().take(100).map(|s| s.as_str()).collect();
+    crate::mwlog!("[ue5] Class list (first 100 of {} unique): {:?}", seen_names.len(), preview);
     Err(format!("No object with class '{}' found in GObjects", target_class))
 }
 
@@ -239,13 +239,100 @@ pub fn resolve_ue5_prop(
     }
 }
 
-// Uses static module offsets instead of AOB scanning.
-// gobjects_offset: offset of GObjects global from module base
-// gnames_offset:   offset of FNamePool.Blocks from module base (= FNamePool + 0x10)
-// extra_offsets:   optional pointer chain applied after obj_ptr + property_offset
+fn collect_ptrs(data: &[u8]) -> Vec<usize> {
+    let mut v: Vec<usize> = (0..data.len().saturating_sub(7))
+        .step_by(8)
+        .filter_map(|k| {
+            let arr: [u8; 8] = data[k..k + 8].try_into().ok()?;
+            let p = usize::from_le_bytes(arr);
+            if p >= 0x10_0000 && p <= 0x0000_7FFF_FFFF_FFFF { Some(p) } else { None }
+        })
+        .collect();
+    v.sort_unstable();
+    v.dedup();
+    v
+}
+
+fn trace_hp_from_opc(pid: u32, opc_addr: usize) {
+    let hp_bytes = (291.0f32).to_le_bytes();
+    let sh_bytes = (663.0f32).to_le_bytes();
+    crate::mwlog!("[attr] tracing HP={:02X?} SH={:02X?} from OPC=0x{:X}", &hp_bytes, &sh_bytes, opc_addr);
+
+    // OPC+0x3D0 = AController::Pawn (OakCharacter)
+    let oak_char = match read_ptr(pid, opc_addr + 0x3D0) {
+        Some(p) if p >= 0x10_0000 && p <= 0x0000_7FFF_FFFF_FFFF => p,
+        other => { crate::mwlog!("[attr] OPC+0x3D0={:?} is not a valid ptr", other); return; }
+    };
+    crate::mwlog!("[attr] OakChar=0x{:X}", oak_char);
+
+    let d0 = match read_memory(pid, oak_char, 8192) {
+        Ok(b) => b,
+        Err(e) => { crate::mwlog!("[attr] read OakChar failed: {}", e); return; }
+    };
+
+    // Depth-0 search
+    for j in 0..d0.len().saturating_sub(3) {
+        if d0[j..j + 4] == hp_bytes { crate::mwlog!("[attr] HP at OakChar+0x{:X}", j); }
+        if d0[j..j + 4] == sh_bytes { crate::mwlog!("[attr] SH at OakChar+0x{:X}", j); }
+    }
+
+    let ptrs1 = collect_ptrs(&d0);
+    crate::mwlog!("[attr] {} unique depth-1 ptrs in OakChar[0..8192]", ptrs1.len());
+
+    // Depth-1 search (4096 bytes per target)
+    let mut hp_found = false;
+    for (i, &p1) in ptrs1.iter().enumerate() {
+        let d1 = match read_memory(pid, p1, 4096) { Ok(b) => b, Err(_) => continue };
+        for j in 0..d1.len().saturating_sub(3) {
+            if d1[j..j + 4] == hp_bytes {
+                crate::mwlog!("[attr] HP at d1[{}]=0x{:X}+0x{:X}", i, p1, j);
+                let lo = j.saturating_sub(32);
+                let hi = (j + 96).min(d1.len());
+                for (ri, row) in d1[lo..hi].chunks(16).enumerate() {
+                    crate::mwlog!("[attr]   +0x{:03X}: {:02X?}", lo + ri * 16, row);
+                }
+                hp_found = true;
+            }
+            if d1[j..j + 4] == sh_bytes {
+                crate::mwlog!("[attr] SH at d1[{}]=0x{:X}+0x{:X}", i, p1, j);
+            }
+        }
+    }
+
+    if hp_found { crate::mwlog!("[attr] done (found at depth-1)"); return; }
+
+    // Depth-2 search (capped to 3000 targets, 2048 bytes each ≈ 6 MB total)
+    crate::mwlog!("[attr] HP not at depth-1; checking depth-2 (max 3000 targets)");
+    let mut d2_count = 0usize;
+    'depth2: for &p1 in ptrs1.iter().take(100) {
+        let d1 = match read_memory(pid, p1, 512) { Ok(b) => b, Err(_) => continue };
+        let ptrs2 = collect_ptrs(&d1);
+        for &p2 in ptrs2.iter().take(30) {
+            if d2_count >= 3000 { break 'depth2; }
+            let d2 = match read_memory(pid, p2, 2048) { Ok(b) => b, Err(_) => { d2_count += 1; continue; } };
+            for j in 0..d2.len().saturating_sub(3) {
+                if d2[j..j + 4] == hp_bytes {
+                    crate::mwlog!("[attr] HP at d2: 0x{:X}->0x{:X}+0x{:X}", p1, p2, j);
+                    let lo = j.saturating_sub(32);
+                    let hi = (j + 96).min(d2.len());
+                    for (ri, row) in d2[lo..hi].chunks(16).enumerate() {
+                        crate::mwlog!("[attr]   +0x{:03X}: {:02X?}", lo + ri * 16, row);
+                    }
+                }
+                if d2[j..j + 4] == sh_bytes {
+                    crate::mwlog!("[attr] SH at d2: 0x{:X}->0x{:X}+0x{:X}", p1, p2, j);
+                }
+            }
+            d2_count += 1;
+        }
+    }
+    crate::mwlog!("[attr] depth-2 done: {} targets checked", d2_count);
+}
+
 pub fn resolve_ue5_prop_static(
     pid: u32,
     module_base: usize,
+    _module_size: usize,
     gobjects_offset: usize,
     gnames_offset: usize,
     class_name: &str,
@@ -262,25 +349,18 @@ pub fn resolve_ue5_prop_static(
         crate::mwlog!("[ue5/static] bytes at initial: {:02X?}", &dump[..]);
     }
 
+    // One-time diagnostic: trace from OPC → OakChar and walk pointer chains at depth 1 and 2
+    // to find the float storage for HP (291.0) and Shield (663.0).
+    if class_name == "OakPlayerController" && !PAWN_DIAG_DONE.swap(true, Ordering::Relaxed) {
+        trace_hp_from_opc(pid, obj_ptr);
+    }
+
+
     if extra_offsets.is_empty() {
         Ok(initial)
     } else {
         let result = crate::engine::resolve_pointer_path(pid, initial, extra_offsets);
         crate::mwlog!("[ue5/static] pointer_path result={:?}", result);
-
-        // One-time diagnostic: dump 256 bytes of the object around property_offset
-        // so we can find the correct offset when the pointer chain fails.
-        if result.is_err() && !OBJ_DUMP_DONE.swap(true, Ordering::Relaxed) {
-            let dump_start = obj_ptr + property_offset.saturating_sub(0x40);
-            crate::mwlog!("[ue5/diag] 256 bytes of object @ obj+{:#X} (property_offset={:#X}):",
-                property_offset.saturating_sub(0x40), property_offset);
-            if let Ok(dump) = read_memory(pid, dump_start, 256) {
-                for (i, row) in dump.chunks(16).enumerate() {
-                    let off_label = property_offset.saturating_sub(0x40) + i * 16;
-                    crate::mwlog!("[ue5/diag] +{:#06X}: {:02X?}", off_label, row);
-                }
-            }
-        }
 
         result
     }

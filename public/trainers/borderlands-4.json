@@ -7,13 +7,14 @@
       "name": "Invincibility",
       "type": "ue5_prop",
       "module": "Borderlands4.exe",
-      "valueType": "byte",
+      "valueType": "float",
       "ue5GObjectsOffset": "0x11765A30",
       "ue5GNamesOffset": "0x1167FDD0",
-      "ue5ClassName": "OakCharacter",
-      "ue5PropertyOffset": 98,
-      "onValue": 1,
-      "offValue": 5,
+      "ue5ClassName": "OakPlayerController",
+      "ue5PropertyOffset": 976,
+      "ue5Offsets": [16772],
+      "onValue": 0.0,
+      "offValue": 1.0,
       "offsets": []
     },
     {
@@ -154,30 +155,20 @@
     {
       "id": "bl4-drop-rate",
       "name": "100% Drop Rate",
-      "type": "ue5_prop",
-      "module": "Borderlands4.exe",
+      "type": "scan",
       "valueType": "float",
-      "ue5GObjectsOffset": "0x11765A30",
-      "ue5GNamesOffset": "0x1167FDD0",
-      "ue5ClassName": "OakPlayerController",
-      "ue5PropertyOffset": 10128,
-      "ue5Offsets": [28],
-      "onValue": 100.0,
-      "offsets": []
+      "module": "",
+      "offsets": [],
+      "onValue": 100.0
     },
     {
       "id": "bl4-legendary-drop-rate",
       "name": "Max Legendary Drop Rate",
-      "type": "ue5_prop",
-      "module": "Borderlands4.exe",
+      "type": "scan",
       "valueType": "float",
-      "ue5GObjectsOffset": "0x11765A30",
-      "ue5GNamesOffset": "0x1167FDD0",
-      "ue5ClassName": "OakPlayerController",
-      "ue5PropertyOffset": 10128,
-      "ue5Offsets": [28],
-      "onValue": 100.0,
-      "offsets": []
+      "module": "",
+      "offsets": [],
+      "onValue": 100.0
     }
   ]
 }

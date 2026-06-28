@@ -59,23 +59,73 @@ pub fn get_module_info(pid: u32, module_name: &str) -> Option<(usize, usize)> {
 pub fn aob_scan(pid: u32, module_name: &str, pattern: &str) -> Result<usize, String> {
     let (base, size) = get_module_info(pid, module_name)
         .ok_or_else(|| format!("Could not find module {}", module_name))?;
-    aob_scan_range(pid, base, size, pattern)
-        .ok_or_else(|| "Pattern not found".to_string())
+    crate::mwlog!("[aob_scan] '{}' base=0x{:X} size=0x{:X} pattern={}", module_name, base, size, pattern);
+    let result = aob_scan_range(pid, base, size, pattern)
+        .ok_or_else(|| "Pattern not found".to_string());
+    match &result {
+        Ok(addr) => crate::mwlog!("[aob_scan] found at 0x{:X} (RVA=0x{:X})", addr, addr.wrapping_sub(base)),
+        Err(e) => crate::mwlog!("[aob_scan] NOT found: {}", e),
+    }
+    result
 }
 
 pub fn aob_scan_range(pid: u32, base: usize, size: usize, pattern: &str) -> Option<usize> {
-    let data = read_memory(pid, base, size).ok()?;
-
     let pattern_bytes: Vec<Option<u8>> = pattern
         .split_whitespace()
-        .map(|b| if b == "??" || b == "?" { None } else { Some(u8::from_str_radix(b, 16).unwrap_or(0)) })
+        .map(|b| if b == "??" || b == "?" { None } else { u8::from_str_radix(b, 16).ok() })
         .collect();
+    if pattern_bytes.is_empty() { return None; }
+    let pat_len = pattern_bytes.len();
+    const CHUNK: usize = 16 * 1024 * 1024;
 
-    data.windows(pattern_bytes.len())
-        .position(|window| {
-            window.iter().zip(&pattern_bytes).all(|(b, p)| p.map_or(true, |pb| *b == pb))
-        })
-        .map(|i| base + i)
+    // Use VirtualQueryEx to walk only committed, readable pages within the range.
+    // This avoids allocating buffers for the large unmapped gaps that inflate SizeOfImage
+    // on big modules (BL4 reports 883 MB virtual but most of that is reserved/unmapped).
+    unsafe {
+        let handle = ProcessHandle::open(pid).ok()?;
+        let range_end = base + size;
+        let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
+        let mut region_addr = base;
+
+        while region_addr < range_end {
+            let mut mbi = MEMORY_BASIC_INFORMATION::default();
+            if VirtualQueryEx(
+                handle.0,
+                Some(region_addr as *const _),
+                &mut mbi,
+                std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+            ) == 0 {
+                break;
+            }
+
+            let region_base = mbi.BaseAddress as usize;
+            let region_end  = region_base.saturating_add(mbi.RegionSize).min(range_end);
+            // Advance past this region regardless of whether we scan it.
+            region_addr = region_base.saturating_add(mbi.RegionSize);
+            if region_addr == 0 { break; }
+
+            if mbi.State != MEM_COMMIT || (mbi.Protect.0 & unreadable) != 0 {
+                continue; // skip reserved/free/guarded pages — no allocation needed
+            }
+
+            // Scan this committed region in 16 MB chunks to bound per-allocation size.
+            let mut pos = region_base.max(base);
+            while pos + pat_len <= region_end {
+                let chunk_size = CHUNK.min(region_end - pos);
+                if let Ok(data) = read_memory_raw(handle.0, pos, chunk_size) {
+                    if let Some(i) = data.windows(pat_len)
+                        .position(|w| w.iter().zip(&pattern_bytes).all(|(b, p)| p.map_or(true, |pb| *b == pb)))
+                    {
+                        return Some(pos + i);
+                    }
+                }
+                // Overlap by pat_len-1 to catch matches split across chunk boundaries.
+                // chunk_size >= pat_len here, so the step is always >= 1.
+                pos += chunk_size - (pat_len - 1);
+            }
+        }
+    }
+    None
 }
 
 pub fn find_process_by_name(name: &str) -> Option<u32> {

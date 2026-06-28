@@ -78,6 +78,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
   const activeGameRef = useRef<GameTrainer | null>(null);
   const pidRef = useRef<number | null>(null);
   const addressCache = useRef<Record<string, string>>({});
+  const cheatFailedAt = useRef<Record<string, number>>({});
 
   useEffect(() => { activeGameRef.current = activeGame; }, [activeGame]);
   useEffect(() => { pidRef.current = pid; }, [pid]);
@@ -166,6 +167,10 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
             .filter(c => c.valueType != null)
             .map(async (cheat) => {
               try {
+                const failedAt = cheatFailedAt.current[cheat.id];
+                if (failedAt && Date.now() - failedAt < 30_000) {
+                  return { id: cheat.id, val: '???' };
+                }
                 const addr = await resolveCheatAddress(cheat);
                 const hexAddr = toHexAddr(addr);
                 if ((cheat.type === 'toggle' || cheat.type === 'mono_chain' || cheat.type === 'ue5_prop') && cheat.active && cheat.valueType) {
@@ -187,6 +192,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
               } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 onCheatError?.(cheat.id, msg);
+                cheatFailedAt.current[cheat.id] = Date.now();
                 delete addressCache.current[cheat.id];
                 return { id: cheat.id, val: '???' };
               }
@@ -209,6 +215,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
 
   const selectGame = useCallback(async (game: GameTrainer | null) => {
     addressCache.current = {};
+    cheatFailedAt.current = {};
     setActiveGame(game);
     if (!game) { setPid(null); return; }
     try {

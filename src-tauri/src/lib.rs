@@ -1,4 +1,4 @@
-mod engine;
+﻿mod engine;
 mod logger;
 mod mono;
 mod scanner;
@@ -164,7 +164,7 @@ fn resolve_ue5_prop(
         .ok_or_else(|| format!("Module '{}' not found", module_name))?;
     let chain = extra_offsets.as_deref().unwrap_or(&[]);
     let addr = if let (Some(go), Some(gn)) = (gobjects_offset, gnames_offset) {
-        ue5::resolve_ue5_prop_static(pid, base, go, gn, &class_name, property_offset, chain)?
+        ue5::resolve_ue5_prop_static(pid, base, size, go, gn, &class_name, property_offset, chain)?
     } else {
         ue5::resolve_ue5_prop(pid, base, size, &gobjects_aob, &gnames_aob, &class_name, property_offset, chain)?
     };
@@ -188,7 +188,13 @@ fn read_byte(pid: u32, address: String) -> Result<u8, String> {
 #[tauri::command]
 fn patch_bytes(pid: u32, address: String, bytes: Vec<u8>) -> Result<(), String> {
     let addr = parse_addr(&address)?;
-    engine::patch_memory(pid, addr as usize, &bytes)
+    crate::mwlog!("[patch_bytes] pid={} addr=0x{:X} bytes={:02X?}", pid, addr, &bytes);
+    let result = engine::patch_memory(pid, addr as usize, &bytes);
+    match &result {
+        Ok(_) => crate::mwlog!("[patch_bytes] OK"),
+        Err(e) => crate::mwlog!("[patch_bytes] FAILED: {}", e),
+    }
+    result
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -103,6 +103,13 @@ fn class_inherits_from(pid: u32, gnames_base: usize, mut class_ptr: usize, targe
     false
 }
 
+pub fn lookup_fnames(pid: u32, gnames_base: usize, indices: &[u32], off: &Ue5Offsets) -> Vec<String> {
+    indices.iter().map(|&idx| {
+        fname_to_string(pid, gnames_base, idx as i32, off)
+            .unwrap_or_else(|| format!("?{}", idx))
+    }).collect()
+}
+
 pub fn list_classes_by_keyword(
     pid: u32,
     gobjects_base: usize,

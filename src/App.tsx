@@ -355,6 +355,33 @@ function App() {
                     onChange={e => setClassKeyword(e.target.value)}
                     style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
                   />
+                  <button className="fire-button" disabled={!pid} onClick={async () => {
+                    if (!pid) return;
+                    try {
+                      setDiffStatus('Looking up FNames...');
+                      const names = await invoke<string[]>('lookup_fnames', {
+                        pid, moduleName: 'Borderlands4.exe', gnamesOffset: 0x1167FDD0,
+                        indices: [12171, 1471, 78527, 108627],
+                      });
+                      setDiffResults(names.map((n, i) => `${[12171,1471,78527,108627][i]}: ${n}`));
+                      setDiffStatus('FName lookup done');
+                    } catch (e) { setDiffStatus(String(e)); }
+                  }}>Lookup FNames</button>
+                  <button className="fire-button" disabled={!pid} onClick={async () => {
+                    if (!pid) return;
+                    try {
+                      setDiffStatus('Resolving NexusConfigStoreItemPool...');
+                      setDiffResults([]);
+                      const addr = await invoke<string>('resolve_ue5_prop', {
+                        pid, moduleName: 'Borderlands4.exe', gobjectsAob: '', gnamesAob: '',
+                        gobjectsOffset: 0x11765A30, gnamesOffset: 0x1167FDD0,
+                        className: 'NexusConfigStoreItemPool', propertyOffset: 0, extraOffsets: null,
+                      });
+                      const lines = await invoke<string[]>('dump_floats_at', { pid, address: addr, count: 128 });
+                      setDiffResults([`Object: ${addr}`, ...lines]);
+                      setDiffStatus(`Dumped NexusConfigStoreItemPool`);
+                    } catch (e) { setDiffStatus(String(e)); }
+                  }}>Dump Item Pool</button>
                   <button className="fire-button" disabled={!pid || !classKeyword} onClick={async () => {
                     if (!pid || !classKeyword) return;
                     try {

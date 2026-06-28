@@ -227,6 +227,14 @@ fn read_snapshot_region(rva: usize, size: usize) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn lookup_fnames(pid: u32, module_name: String, gnames_offset: usize, indices: Vec<u32>) -> Result<Vec<String>, String> {
+    let (base, _) = engine::get_module_info(pid, &module_name)
+        .ok_or_else(|| format!("Module '{}' not found", module_name))?;
+    let off = ue5::Ue5Offsets::ue5_default();
+    Ok(ue5::lookup_fnames(pid, base + gnames_offset, &indices, &off))
+}
+
+#[tauri::command]
 fn list_ue5_classes(pid: u32, module_name: String, gobjects_offset: usize, gnames_offset: usize, keyword: String) -> Result<Vec<String>, String> {
     let (base, _) = engine::get_module_info(pid, &module_name)
         .ok_or_else(|| format!("Module '{}' not found", module_name))?;
@@ -313,6 +321,7 @@ pub fn run() {
             toggle_bit_flag,
             dump_floats_at,
             list_ue5_classes,
+            lookup_fnames,
             snapshot_module,
             diff_snapshot,
             read_snapshot_region

@@ -33,6 +33,7 @@ export interface Cheat {
   ue5ClassName?: string;
   ue5PropertyOffset?: number;
   ue5Offsets?: number[];       // optional pointer chain after obj_ptr + property_offset
+  bitIndex?: number;           // if set, use toggle_bit_flag instead of a value write
   offValue?: number;
   active?: boolean;
   currentValue?: string | number;
@@ -262,6 +263,9 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
       if (cheat.type === 'patch') {
         const bytes = willBeActive ? cheat.onBytes : cheat.offBytes;
         await invoke('patch_bytes', { pid, address: hexAddr, bytes });
+      } else if (cheat.bitIndex !== undefined) {
+        const bitSet = willBeActive ? (cheat.onValue !== 0) : ((cheat.offValue ?? 1) !== 0);
+        await invoke('toggle_bit_flag', { pid, address: hexAddr, bit: cheat.bitIndex, value: bitSet });
       } else if (cheat.type === 'ue5_prop' && !willBeActive && cheat.offValue !== undefined) {
         if (cheat.valueType === 'byte') {
           await invoke('write_byte', { pid, address: hexAddr, value: cheat.offValue });

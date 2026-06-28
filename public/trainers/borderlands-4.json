@@ -7,14 +7,14 @@
       "name": "Invincibility",
       "type": "ue5_prop",
       "module": "Borderlands4.exe",
-      "valueType": "float",
       "ue5GObjectsOffset": "0x11765A30",
       "ue5GNamesOffset": "0x1167FDD0",
       "ue5ClassName": "OakPlayerController",
       "ue5PropertyOffset": 976,
-      "ue5Offsets": [16772],
-      "onValue": 0.0,
-      "offValue": 1.0,
+      "ue5Offsets": [98],
+      "bitIndex": 2,
+      "onValue": 0,
+      "offValue": 1,
       "offsets": []
     },
     {

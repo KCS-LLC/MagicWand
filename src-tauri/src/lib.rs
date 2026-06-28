@@ -4,6 +4,9 @@ mod mono;
 mod scanner;
 mod ue5;
 
+use std::sync::Mutex;
+static MODULE_SNAPSHOT: Mutex<Option<(String, usize, Vec<(usize, Vec<u8>)>)>> = Mutex::new(None);
+
 #[tauri::command]
 fn scan_games() -> Vec<scanner::DetectedGame> {
     scanner::scan_all()
@@ -172,6 +175,64 @@ fn resolve_ue5_prop(
 }
 
 #[tauri::command]
+fn snapshot_module(pid: u32, module_name: String) -> Result<String, String> {
+    let (base, size) = engine::get_module_info(pid, &module_name)
+        .ok_or_else(|| format!("Module '{}' not found", module_name))?;
+    let regions = engine::snapshot_executable_pages(pid, base, size)?;
+    let total: usize = regions.iter().map(|(_, d)| d.len()).sum();
+    let count = regions.len();
+    *MODULE_SNAPSHOT.lock().unwrap() = Some((module_name, base, regions));
+    Ok(format!("Snapshotted {} bytes across {} executable regions at base 0x{:X}", total, count, base))
+}
+
+#[tauri::command]
+fn diff_snapshot(pid: u32) -> Result<Vec<String>, String> {
+    let snap = MODULE_SNAPSHOT.lock().unwrap();
+    let (module_name, snap_base, regions) = snap.as_ref().ok_or("No snapshot — take a snapshot first")?;
+    let (current_base, _) = engine::get_module_info(pid, module_name)
+        .ok_or("Module not found")?;
+    let mut diffs: Vec<String> = Vec::new();
+    for (region_base, old_data) in regions {
+        if let Ok(new_data) = engine::read_memory(pid, *region_base, old_data.len()) {
+            for (i, (old, new)) in old_data.iter().zip(new_data.iter()).enumerate() {
+                if old != new {
+                    let abs = region_base + i;
+                    let rva = abs.wrapping_sub(*snap_base);
+                    diffs.push(format!("RVA 0x{:X}  abs 0x{:X}  {:02X} -> {:02X}", rva, abs, old, new));
+                }
+            }
+        }
+    }
+    if diffs.is_empty() {
+        diffs.push(format!("No changes detected (base 0x{:X})", current_base));
+    }
+    Ok(diffs)
+}
+
+#[tauri::command]
+fn read_snapshot_region(rva: usize, size: usize) -> Result<String, String> {
+    let snap = MODULE_SNAPSHOT.lock().unwrap();
+    let (_, base, regions) = snap.as_ref().ok_or("No snapshot")?;
+    let target = base + rva;
+    for (region_base, data) in regions {
+        let region_end = region_base + data.len();
+        if *region_base <= target && target < region_end {
+            let start = target - region_base;
+            let end = (start + size).min(data.len());
+            let hex: Vec<String> = data[start..end].iter().map(|b| format!("{:02X}", b)).collect();
+            return Ok(hex.join(" "));
+        }
+    }
+    Err(format!("RVA 0x{:X} not found in snapshot", rva))
+}
+
+#[tauri::command]
+fn toggle_bit_flag(pid: u32, address: String, bit: u8, value: bool) -> Result<(), String> {
+    let addr = parse_addr(&address)?;
+    engine::set_bit_at(pid, addr as usize, bit, value)
+}
+
+#[tauri::command]
 fn write_byte(pid: u32, address: String, value: u8) -> Result<(), String> {
     let addr = parse_addr(&address)?;
     engine::patch_memory(pid, addr as usize, &[value])
@@ -226,7 +287,11 @@ pub fn run() {
             resolve_mono_chain,
             resolve_ue5_prop,
             write_byte,
-            read_byte
+            read_byte,
+            toggle_bit_flag,
+            snapshot_module,
+            diff_snapshot,
+            read_snapshot_region
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

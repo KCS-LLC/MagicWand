@@ -3,7 +3,7 @@ use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory};
 use windows::Win32::System::Memory::{
     VirtualProtectEx, VirtualQueryEx,
-    PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
+    PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
     MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS, PAGE_GUARD,
 };
 use windows::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameW, GetModuleInformation, MODULEINFO};
@@ -286,5 +286,49 @@ pub fn patch_memory(pid: u32, address: usize, data: &[u8]) -> Result<(), String>
         let _ = VirtualProtectEx(handle.0, address as *const _, data.len(), old_protect, &mut old_protect);
 
         result.map_err(|_| "Failed to write patched bytes".to_string())
+    }
+}
+
+pub fn set_bit_at(pid: u32, address: usize, bit: u8, set: bool) -> Result<(), String> {
+    let data = read_memory(pid, address, 1)?;
+    let byte = if set { data[0] | (1 << bit) } else { data[0] & !(1 << bit) };
+    write_memory(pid, address, &[byte])
+}
+
+// Reads all committed executable pages within [base, base+size) and returns
+// (region_start, bytes) pairs. Used for before/after diffing of code patches.
+pub fn snapshot_executable_pages(pid: u32, base: usize, size: usize) -> Result<Vec<(usize, Vec<u8>)>, String> {
+    unsafe {
+        let handle = ProcessHandle::open(pid)?;
+        let range_end = base.saturating_add(size);
+        // All four executable page protection flags
+        let exec_mask = PAGE_EXECUTE_READ.0 | PAGE_EXECUTE_READWRITE.0 | 0x10u32 | 0x80u32;
+        let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
+        let mut regions: Vec<(usize, Vec<u8>)> = Vec::new();
+        let mut addr = base;
+
+        while addr < range_end {
+            let mut mbi = MEMORY_BASIC_INFORMATION::default();
+            if VirtualQueryEx(handle.0, Some(addr as *const _), &mut mbi,
+                std::mem::size_of::<MEMORY_BASIC_INFORMATION>()) == 0 { break; }
+            let region_base = mbi.BaseAddress as usize;
+            let region_end  = region_base.saturating_add(mbi.RegionSize).min(range_end);
+            addr = region_base.saturating_add(mbi.RegionSize);
+            if addr == 0 { break; }
+
+            if mbi.State == MEM_COMMIT
+                && (mbi.Protect.0 & exec_mask) != 0
+                && (mbi.Protect.0 & unreadable) == 0
+            {
+                let read_base = region_base.max(base);
+                let read_size = region_end.saturating_sub(read_base);
+                if read_size > 0 {
+                    if let Ok(data) = read_memory_raw(handle.0, read_base, read_size) {
+                        regions.push((read_base, data));
+                    }
+                }
+            }
+        }
+        Ok(regions)
     }
 }

@@ -103,6 +103,66 @@ fn class_inherits_from(pid: u32, gnames_base: usize, mut class_ptr: usize, targe
     false
 }
 
+pub fn list_classes_by_keyword(
+    pid: u32,
+    gobjects_base: usize,
+    gnames_base: usize,
+    keyword: &str,
+    off: &Ue5Offsets,
+) -> Result<Vec<String>, String> {
+    let num_elements = read_u32(pid, gobjects_base + off.gobjects_num_elements)
+        .ok_or("Could not read GObjects.NumElements")? as usize;
+    if num_elements == 0 || num_elements > 2_000_000 {
+        return Err(format!("GObjects.NumElements={} looks invalid", num_elements));
+    }
+    let objects_ptr = read_ptr(pid, gobjects_base + off.gobjects_objects)
+        .ok_or("Could not read GObjects.Objects")?;
+    let kw_lower = keyword.to_lowercase();
+    let num_chunks = (num_elements + off.gobjects_chunk_size - 1) / off.gobjects_chunk_size;
+    let mut seen: HashMap<usize, ()> = HashMap::new();
+    let mut results: Vec<String> = Vec::new();
+    for chunk_idx in 0..num_chunks {
+        let chunk_ptr = match read_ptr(pid, objects_ptr + chunk_idx * 8) {
+            Some(p) if p != 0 => p,
+            _ => continue,
+        };
+        let items_start = chunk_idx * off.gobjects_chunk_size;
+        let items_in_chunk = (num_elements - items_start).min(off.gobjects_chunk_size);
+        let chunk_bytes = match read_memory(pid, chunk_ptr, items_in_chunk * off.fuobjectitem_size) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        for item_idx in 0..items_in_chunk {
+            let item_base = item_idx * off.fuobjectitem_size + off.fuobjectitem_object;
+            if item_base + 8 > chunk_bytes.len() { continue; }
+            let obj_ptr = usize::from_le_bytes(
+                match chunk_bytes[item_base..item_base + 8].try_into() {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                }
+            );
+            if obj_ptr == 0 || obj_ptr > 0x0000_7FFF_FFFF_FFFF { continue; }
+            let class_ptr = match read_ptr(pid, obj_ptr + off.uobject_class) {
+                Some(p) if p != 0 => p,
+                _ => continue,
+            };
+            if seen.contains_key(&class_ptr) { continue; }
+            seen.insert(class_ptr, ());
+            if let Some(i) = read_i32(pid, class_ptr + off.uobject_name) {
+                if i >= 0 {
+                    if let Some(name) = fname_to_string(pid, gnames_base, i, off) {
+                        if name.to_lowercase().contains(&kw_lower) {
+                            results.push(name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    results.sort();
+    Ok(results)
+}
+
 pub fn find_object_by_class(
     pid: u32,
     gobjects_base: usize,

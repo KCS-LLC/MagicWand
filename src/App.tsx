@@ -33,6 +33,7 @@ function App() {
   const [diffStatus, setDiffStatus] = useState<string>('');
   const [diffResults, setDiffResults] = useState<string[]>([]);
   const [dumpAddr, setDumpAddr] = useState<string>('');
+  const [classKeyword, setClassKeyword] = useState<string>('');
   const { pollInterval, setPollInterval, scanMode, setScanMode, alwaysOnTop, setAlwaysOnTop, loaded } = useSettings();
   const setCheatError = useCallback((id: string, msg: string) =>
     setCheatErrors(prev => ({ ...prev, [id]: msg })), []);
@@ -344,6 +345,31 @@ function App() {
                       setDiffStatus(`Dumped 128 floats from ${dumpAddr}`);
                     } catch (e) { setDiffStatus(String(e)); }
                   }}>Dump at Addr</button>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <input
+                    className="value-input"
+                    type="text"
+                    placeholder="loot"
+                    value={classKeyword}
+                    onChange={e => setClassKeyword(e.target.value)}
+                    style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
+                  />
+                  <button className="fire-button" disabled={!pid || !classKeyword} onClick={async () => {
+                    if (!pid || !classKeyword) return;
+                    try {
+                      setDiffStatus(`Searching classes for "${classKeyword}"...`);
+                      const names = await invoke<string[]>('list_ue5_classes', {
+                        pid,
+                        moduleName: 'Borderlands4.exe',
+                        gobjectsOffset: 0x11765A30,
+                        gnamesOffset: 0x1167FDD0,
+                        keyword: classKeyword,
+                      });
+                      setDiffResults(names.length > 0 ? names : ['(no matches)']);
+                      setDiffStatus(`Found ${names.length} class(es) containing "${classKeyword}"`);
+                    } catch (e) { setDiffStatus(String(e)); }
+                  }}>Find Classes</button>
                 </div>
                 {diffStatus && <span style={{ fontSize: '0.7rem', color: '#aaa' }}>{diffStatus}</span>}
                 {diffResults.length > 0 && (

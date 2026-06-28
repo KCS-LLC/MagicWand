@@ -227,6 +227,14 @@ fn read_snapshot_region(rva: usize, size: usize) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn list_ue5_classes(pid: u32, module_name: String, gobjects_offset: usize, gnames_offset: usize, keyword: String) -> Result<Vec<String>, String> {
+    let (base, _) = engine::get_module_info(pid, &module_name)
+        .ok_or_else(|| format!("Module '{}' not found", module_name))?;
+    let off = ue5::Ue5Offsets::ue5_default();
+    ue5::list_classes_by_keyword(pid, base + gobjects_offset, base + gnames_offset, &keyword, &off)
+}
+
+#[tauri::command]
 fn dump_floats_at(pid: u32, address: String, count: usize) -> Result<Vec<String>, String> {
     let addr = parse_addr(&address)? as usize;
     let bytes = engine::read_memory(pid, addr, count * 4)?;
@@ -302,6 +310,7 @@ pub fn run() {
             read_byte,
             toggle_bit_flag,
             dump_floats_at,
+            list_ue5_classes,
             snapshot_module,
             diff_snapshot,
             read_snapshot_region

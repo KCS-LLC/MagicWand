@@ -316,16 +316,16 @@ function App() {
                         gnamesAob: '',
                         gobjectsOffset: 0x11765A30,
                         gnamesOffset: 0x1167FDD0,
-                        className: 'NexusConfigStoreInventoryRarity',
+                        className: 'InventoryRarityDef',
                         propertyOffset: 0,
                         extraOffsets: null,
                       });
                       setDiffStatus(`Found at ${addr} — dumping floats...`);
                       const lines = await invoke<string[]>('dump_floats_at', { pid, address: addr, count: 256 });
                       setDiffResults([`Object: ${addr}`, ...lines]);
-                      setDiffStatus(`Dumped 256 floats from NexusConfigStoreInventoryRarity`);
+                      setDiffStatus(`Dumped 256 floats from InventoryRarityDef`);
                     } catch (e) { setDiffStatus(String(e)); }
-                  }}>Dump Rarity Obj</button>
+                  }}>Dump RarityDef</button>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                   <input

@@ -32,6 +32,7 @@ function App() {
   const [currentPage, setCurrentPage] = useState<Page>('library');
   const [diffStatus, setDiffStatus] = useState<string>('');
   const [diffResults, setDiffResults] = useState<string[]>([]);
+  const [dumpAddr, setDumpAddr] = useState<string>('');
   const { pollInterval, setPollInterval, scanMode, setScanMode, alwaysOnTop, setAlwaysOnTop, loaded } = useSettings();
   const setCheatError = useCallback((id: string, msg: string) =>
     setCheatErrors(prev => ({ ...prev, [id]: msg })), []);
@@ -324,6 +325,25 @@ function App() {
                       setDiffStatus(`Dumped 128 floats from NexusConfigStoreLootConfig`);
                     } catch (e) { setDiffStatus(String(e)); }
                   }}>Dump Loot Obj</button>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <input
+                    className="value-input"
+                    type="text"
+                    placeholder="0x1EA624380"
+                    value={dumpAddr}
+                    onChange={e => setDumpAddr(e.target.value)}
+                    style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
+                  />
+                  <button className="fire-button" disabled={!pid || !dumpAddr} onClick={async () => {
+                    if (!pid || !dumpAddr) return;
+                    try {
+                      setDiffStatus(`Dumping ${dumpAddr}...`);
+                      const lines = await invoke<string[]>('dump_floats_at', { pid, address: dumpAddr, count: 128 });
+                      setDiffResults([`Dump @ ${dumpAddr}`, ...lines]);
+                      setDiffStatus(`Dumped 128 floats from ${dumpAddr}`);
+                    } catch (e) { setDiffStatus(String(e)); }
+                  }}>Dump at Addr</button>
                 </div>
                 {diffStatus && <span style={{ fontSize: '0.7rem', color: '#aaa' }}>{diffStatus}</span>}
                 {diffResults.length > 0 && (

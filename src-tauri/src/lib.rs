@@ -227,6 +227,18 @@ fn read_snapshot_region(rva: usize, size: usize) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn dump_floats_at(pid: u32, address: String, count: usize) -> Result<Vec<String>, String> {
+    let addr = parse_addr(&address)? as usize;
+    let bytes = engine::read_memory(pid, addr, count * 4)?;
+    let lines = bytes.chunks(4).enumerate().map(|(i, chunk)| {
+        let f = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        let hex: String = chunk.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ");
+        format!("+0x{:03X}  {:>12.6}  [{}]", i * 4, f, hex)
+    }).collect();
+    Ok(lines)
+}
+
+#[tauri::command]
 fn toggle_bit_flag(pid: u32, address: String, bit: u8, value: bool) -> Result<(), String> {
     let addr = parse_addr(&address)?;
     engine::set_bit_at(pid, addr as usize, bit, value)
@@ -289,6 +301,7 @@ pub fn run() {
             write_byte,
             read_byte,
             toggle_bit_flag,
+            dump_floats_at,
             snapshot_module,
             diff_snapshot,
             read_snapshot_region

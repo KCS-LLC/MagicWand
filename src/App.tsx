@@ -30,6 +30,8 @@ function App() {
   const [scanInputs, setScanInputs] = useState<Record<string, string>>({});
   const [cheatErrors, setCheatErrors] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState<Page>('library');
+  const [diffStatus, setDiffStatus] = useState<string>('');
+  const [diffResults, setDiffResults] = useState<string[]>([]);
   const { pollInterval, setPollInterval, scanMode, setScanMode, alwaysOnTop, setAlwaysOnTop, loaded } = useSettings();
   const setCheatError = useCallback((id: string, msg: string) =>
     setCheatErrors(prev => ({ ...prev, [id]: msg })), []);
@@ -268,6 +270,68 @@ function App() {
                   )}
                 </div>
               ))}
+            </div>
+
+            <div className="cheat-list" style={{ marginTop: '1rem', borderTop: '1px solid #333', paddingTop: '1rem' }}>
+              <div className="cheat-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
+                <span className="cheat-name" style={{ fontSize: '0.75rem', color: '#888' }}>PATCH DIFF TOOL</span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button className="fire-button" disabled={!pid} onClick={async () => {
+                    if (!activeGame || !pid) return;
+                    try {
+                      setDiffStatus('Snapshotting...');
+                      setDiffResults([]);
+                      const msg = await invoke<string>('snapshot_module', { pid, moduleName: activeGame.executable });
+                      setDiffStatus(msg);
+                    } catch (e) { setDiffStatus(String(e)); }
+                  }}>Snapshot</button>
+                  <button className="fire-button" disabled={!pid} onClick={async () => {
+                    if (!pid) return;
+                    try {
+                      setDiffStatus('Diffing...');
+                      const results = await invoke<string[]>('diff_snapshot', { pid });
+                      setDiffResults(results);
+                      setDiffStatus(`Done — ${results.length} result(s)`);
+                    } catch (e) { setDiffStatus(String(e)); }
+                  }}>Diff</button>
+                  <button className="fire-button" onClick={async () => {
+                    try {
+                      const r1 = await invoke<string>('read_snapshot_region', { rva: 0x1F8F83A5, size: 90 });
+                      const r2 = await invoke<string>('read_snapshot_region', { rva: 0x1F902DB0, size: 4 });
+                      setDiffResults([`LOC1: ${r1}`, `LOC2: ${r2}`]);
+                      setDiffStatus('Snapshot regions read');
+                    } catch (e) { setDiffStatus(String(e)); }
+                  }}>Read Regions</button>
+                  <button className="fire-button" disabled={!pid} onClick={async () => {
+                    if (!pid) return;
+                    try {
+                      setDiffStatus('Resolving NexusConfigStoreLootConfig...');
+                      setDiffResults([]);
+                      const addr = await invoke<string>('resolve_ue5_prop', {
+                        pid,
+                        moduleName: 'Borderlands4.exe',
+                        gobjectsAob: '',
+                        gnamesAob: '',
+                        gobjectsOffset: 0x11765A30,
+                        gnamesOffset: 0x1167FDD0,
+                        className: 'NexusConfigStoreLootConfig',
+                        propertyOffset: 0,
+                        extraOffsets: null,
+                      });
+                      setDiffStatus(`Found at ${addr} — dumping floats...`);
+                      const lines = await invoke<string[]>('dump_floats_at', { pid, address: addr, count: 128 });
+                      setDiffResults([`Object: ${addr}`, ...lines]);
+                      setDiffStatus(`Dumped 128 floats from NexusConfigStoreLootConfig`);
+                    } catch (e) { setDiffStatus(String(e)); }
+                  }}>Dump Loot Obj</button>
+                </div>
+                {diffStatus && <span style={{ fontSize: '0.7rem', color: '#aaa' }}>{diffStatus}</span>}
+                {diffResults.length > 0 && (
+                  <pre style={{ fontSize: '0.65rem', color: '#0f0', background: '#111', padding: '0.5rem', borderRadius: '4px', width: '100%', overflowX: 'auto', margin: 0 }}>
+                    {diffResults.join('\n')}
+                  </pre>
+                )}
+              </div>
             </div>
           </div>
         ) : currentPage === 'community' ? (

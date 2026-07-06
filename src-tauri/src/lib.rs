@@ -4,11 +4,17 @@ mod mono;
 mod scanner;
 mod ue5;
 
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 static MODULE_SNAPSHOT: Mutex<Option<(String, usize, Vec<(usize, Vec<u8>)>)>> = Mutex::new(None);
 
-struct CaveEntry { cave_addr: usize }
-static CAVE_STATE: Mutex<Option<CaveEntry>> = Mutex::new(None);
+struct CaveEntry {
+    cave_addr: usize,
+    site_addr: usize,
+    original_bytes: Vec<u8>,
+}
+static CAVE_STATE: LazyLock<Mutex<HashMap<String, CaveEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[tauri::command]
 fn scan_games() -> Vec<scanner::DetectedGame> {
@@ -375,15 +381,15 @@ async fn scan_rarity_candidates(pid: u32, module_name: String) -> Result<Vec<Str
 }
 
 /// Install a code cave for the legendary gate cheat.
-/// `site_rva`      — RVA of the 5-byte instruction to replace with JMP
-/// `site_original` — original bytes at that site (restored on disable)
-/// `cave_payload`  — cave bytes WITHOUT the final JMP back (engine appends E9 rel32)
+/// `cheat_id`     — key into CAVE_STATE; lets multiple code_cave cheats coexist
+/// `site_rva`     — RVA of the 5-byte instruction to replace with JMP
+/// `cave_payload` — cave bytes WITHOUT the final JMP back (engine appends E9 rel32)
 #[tauri::command]
 async fn enable_code_cave(
     pid: u32,
+    cheat_id: String,
     module_name: String,
     site_rva: String,
-    _site_original: Vec<u8>,
     cave_payload: Vec<u8>,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -391,6 +397,10 @@ async fn enable_code_cave(
             .ok_or_else(|| format!("Module {} not found", module_name))?;
         let rva = parse_addr(&site_rva)? as usize;
         let site_addr = base + rva;
+
+        // Snapshot the bytes about to be overwritten by the JMP, so disable can restore them
+        // without relying on a caller-supplied (and potentially stale) copy.
+        let original_bytes = engine::read_memory(pid, site_addr, 5)?;
 
         // Allocate RWX memory near the patch site
         let total = cave_payload.len() + 5; // payload + E9 rel32
@@ -416,7 +426,7 @@ async fn enable_code_cave(
         jmp_bytes.extend_from_slice(&rel32_fwd.to_le_bytes());
         engine::patch_memory(pid, site_addr, &jmp_bytes)?;
 
-        *CAVE_STATE.lock().unwrap() = Some(CaveEntry { cave_addr });
+        CAVE_STATE.lock().unwrap().insert(cheat_id, CaveEntry { cave_addr, site_addr, original_bytes });
         crate::mwlog!("[enable_code_cave] cave=0x{:X} site=0x{:X} (RVA 0x{})", cave_addr, site_addr, site_rva);
         Ok(())
     })
@@ -425,27 +435,17 @@ async fn enable_code_cave(
 }
 
 #[tauri::command]
-async fn disable_code_cave(
-    pid: u32,
-    module_name: String,
-    site_rva: String,
-    site_original: Vec<u8>,
-) -> Result<(), String> {
+async fn disable_code_cave(pid: u32, cheat_id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let (base, _) = engine::get_module_info(pid, &module_name)
-            .ok_or_else(|| format!("Module {} not found", module_name))?;
-        let rva = parse_addr(&site_rva)? as usize;
-        let site_addr = base + rva;
+        let entry = CAVE_STATE.lock().unwrap().remove(&cheat_id)
+            .ok_or("No active code cave for this cheat")?;
 
         // Restore original bytes at patch site
-        engine::patch_memory(pid, site_addr, &site_original)?;
+        engine::patch_memory(pid, entry.site_addr, &entry.original_bytes)?;
 
         // Free the cave allocation
-        let mut state = CAVE_STATE.lock().unwrap();
-        if let Some(entry) = state.take() {
-            let _ = engine::free_alloc(pid, entry.cave_addr);
-            crate::mwlog!("[disable_code_cave] freed cave=0x{:X}", entry.cave_addr);
-        }
+        let _ = engine::free_alloc(pid, entry.cave_addr);
+        crate::mwlog!("[disable_code_cave] freed cave=0x{:X}", entry.cave_addr);
         Ok(())
     })
     .await

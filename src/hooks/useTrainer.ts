@@ -40,7 +40,6 @@ export interface Cheat {
   offPatches?: { rva: string; bytes: number[] }[];
   // code_cave-specific fields:
   patchSite?: string;
-  siteOriginal?: number[];
   cavePayload?: number[];
   active?: boolean;
   currentValue?: string | number;
@@ -300,7 +299,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
     }
 
     if (cheat.type === 'code_cave') {
-      if (!cheat.patchSite || !cheat.siteOriginal || !cheat.cavePayload) return;
+      if (!cheat.patchSite || !cheat.cavePayload) return;
       const willBeActive = !cheat.active;
       setActiveGame(prev => {
         if (!prev) return null;
@@ -310,18 +309,13 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
         if (willBeActive) {
           await invoke('enable_code_cave', {
             pid,
+            cheatId: cheat.id,
             moduleName: cheat.module,
             siteRva: cheat.patchSite,
-            siteOriginal: cheat.siteOriginal,
             cavePayload: cheat.cavePayload,
           });
         } else {
-          await invoke('disable_code_cave', {
-            pid,
-            moduleName: cheat.module,
-            siteRva: cheat.patchSite,
-            siteOriginal: cheat.siteOriginal,
-          });
+          await invoke('disable_code_cave', { pid, cheatId: cheat.id });
         }
       } catch (err) {
         onError?.(cheat.id, err instanceof Error ? err.message : String(err));

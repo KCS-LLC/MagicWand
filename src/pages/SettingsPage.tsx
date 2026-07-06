@@ -3,9 +3,11 @@ interface SettingsPageProps {
   onPollIntervalChange: (value: number) => void | Promise<void>;
   scanMode: boolean;
   onScanModeChange: (value: boolean) => void | Promise<void>;
+  devMode: boolean;
+  onDevModeChange: (value: boolean) => void | Promise<void>;
 }
 
-export function SettingsPage({ pollInterval, onPollIntervalChange, scanMode, onScanModeChange }: SettingsPageProps) {
+export function SettingsPage({ pollInterval, onPollIntervalChange, scanMode, onScanModeChange, devMode, onDevModeChange }: SettingsPageProps) {
   return (
     <div className="page-view">
       <header className="header">
@@ -49,6 +51,24 @@ export function SettingsPage({ pollInterval, onPollIntervalChange, scanMode, onS
         </div>
         <p className="setting-hint">
           Drop <code>.json</code> trainer files here and add them to <code>index.json</code> to load them automatically.
+        </p>
+      </section>
+
+      <section className="settings-section">
+        <h2>Developer</h2>
+        <div className="setting-row">
+          <label>Dev Mode</label>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={devMode}
+              onChange={e => onDevModeChange(e.target.checked)}
+            />
+            <span className="slider"></span>
+          </label>
+        </div>
+        <p className="setting-hint">
+          Shows the memory inspection and patch diagnostic panel in the trainer view. For reverse-engineering and cheat development only — not needed for normal use.
         </p>
       </section>
 

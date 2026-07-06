@@ -155,20 +155,32 @@
     {
       "id": "bl4-drop-rate",
       "name": "100% Drop Rate",
-      "type": "scan",
-      "valueType": "float",
-      "module": "",
+      "type": "code_patch",
+      "module": "Borderlands4.exe",
       "offsets": [],
-      "onValue": 100.0
+      "onValue": 0,
+      "patches": [
+        { "rva": "0x96CA774", "bytes": [15, 87, 192, 144, 144, 144, 144] }
+      ],
+      "offPatches": [
+        { "rva": "0x96CA774", "bytes": [15, 87, 192, 243, 15, 42, 197] }
+      ]
     },
     {
       "id": "bl4-legendary-drop-rate",
       "name": "Max Legendary Drop Rate",
-      "type": "scan",
-      "valueType": "float",
-      "module": "",
+      "type": "code_cave",
+      "module": "Borderlands4.exe",
       "offsets": [],
-      "onValue": 100.0
+      "onValue": 0,
+      "patchSite": "0x96C77FA",
+      "siteOriginal": [37, 255, 127, 0, 0],
+      "cavePayload": [
+        80, 139, 7, 61, 0, 0, 180, 66,
+        88, 114, 5,
+        184, 254, 127, 0, 0,
+        37, 255, 127, 0, 0
+      ]
     }
   ]
 }

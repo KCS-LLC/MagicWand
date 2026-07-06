@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 export interface Cheat {
   id: string;
   name: string;
-  type: 'toggle' | 'action' | 'patch' | 'scan' | 'mono' | 'mono_chain' | 'ue5_prop';
+  type: 'toggle' | 'action' | 'patch' | 'scan' | 'mono' | 'mono_chain' | 'ue5_prop' | 'code_patch' | 'code_cave';
   valueType?: 'int' | 'float' | 'double' | 'byte';
   module: string;
   base?: string;
@@ -28,13 +28,20 @@ export interface Cheat {
   // ue5_prop-specific fields:
   ue5GObjectsAob?: string;
   ue5GNamesAob?: string;
-  ue5GObjectsOffset?: string;  // hex string offset for GObjects, e.g. "0x11765A30"
-  ue5GNamesOffset?: string;    // hex string offset for FNamePool.Blocks (= FNamePool + 0x10)
+  ue5GObjectsOffset?: string;
+  ue5GNamesOffset?: string;
   ue5ClassName?: string;
   ue5PropertyOffset?: number;
-  ue5Offsets?: number[];       // optional pointer chain after obj_ptr + property_offset
-  bitIndex?: number;           // if set, use toggle_bit_flag instead of a value write
+  ue5Offsets?: number[];
+  bitIndex?: number;
   offValue?: number;
+  // code_patch-specific fields:
+  patches?: { rva: string; bytes: number[] }[];
+  offPatches?: { rva: string; bytes: number[] }[];
+  // code_cave-specific fields:
+  patchSite?: string;
+  siteOriginal?: number[];
+  cavePayload?: number[];
   active?: boolean;
   currentValue?: string | number;
 }
@@ -80,6 +87,47 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
   const pidRef = useRef<number | null>(null);
   const addressCache = useRef<Record<string, string>>({});
   const cheatFailedAt = useRef<Record<string, number>>({});
+  const codePatchIntervals = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+
+  const applyCodePatches = async (cheat: Cheat, pid: number) => {
+    if (!cheat.patches) return;
+    const baseStr = await invoke<string>('get_module_base', { pid, moduleName: cheat.module });
+    const base = BigInt(baseStr);
+    for (const patch of cheat.patches) {
+      const addr = `0x${(base + BigInt(patch.rva)).toString(16).toUpperCase()}`;
+      await invoke('patch_bytes', { pid, address: addr, bytes: patch.bytes });
+    }
+  };
+
+  const startCodePatch = (cheat: Cheat, pid: number) => {
+    if (!cheat.patches || cheat.patches.length === 0) return;
+    applyCodePatches(cheat, pid).catch(() => {});
+    const id = setInterval(() => applyCodePatches(cheat, pid).catch(() => {}), 50);
+    codePatchIntervals.current.set(cheat.id, id);
+  };
+
+  const stopCodePatch = (cheat: Cheat, pid: number) => {
+    const id = codePatchIntervals.current.get(cheat.id);
+    if (id !== undefined) { clearInterval(id); codePatchIntervals.current.delete(cheat.id); }
+    if (cheat.offPatches && cheat.offPatches.length > 0 && pid) {
+      (async () => {
+        const baseStr = await invoke<string>('get_module_base', { pid, moduleName: cheat.module });
+        const base = BigInt(baseStr);
+        for (const patch of cheat.offPatches!) {
+          const addr = `0x${(base + BigInt(patch.rva)).toString(16).toUpperCase()}`;
+          await invoke('patch_bytes', { pid, address: addr, bytes: patch.bytes });
+        }
+      })().catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    if (!pid) {
+      codePatchIntervals.current.forEach(id => clearInterval(id));
+      codePatchIntervals.current.clear();
+      // note: offPatches not restored on disconnect — game is closing anyway
+    }
+  }, [pid]);
 
   useEffect(() => { activeGameRef.current = activeGame; }, [activeGame]);
   useEffect(() => { pidRef.current = pid; }, [pid]);
@@ -217,6 +265,8 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
   const selectGame = useCallback(async (game: GameTrainer | null) => {
     addressCache.current = {};
     cheatFailedAt.current = {};
+    codePatchIntervals.current.forEach(id => clearInterval(id));
+    codePatchIntervals.current.clear();
     setActiveGame(game);
     if (!game) { setPid(null); return; }
     try {
@@ -237,6 +287,51 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
 
   const applyCheat = async (cheat: Cheat, customValueStr?: string, onError?: (id: string, msg: string) => void) => {
     if (!pid || !activeGame) return;
+
+    if (cheat.type === 'code_patch') {
+      const willBeActive = !cheat.active;
+      setActiveGame(prev => {
+        if (!prev) return null;
+        return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: willBeActive } : c) };
+      });
+      if (willBeActive) startCodePatch(cheat, pid);
+      else stopCodePatch(cheat, pid);
+      return;
+    }
+
+    if (cheat.type === 'code_cave') {
+      if (!cheat.patchSite || !cheat.siteOriginal || !cheat.cavePayload) return;
+      const willBeActive = !cheat.active;
+      setActiveGame(prev => {
+        if (!prev) return null;
+        return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: willBeActive } : c) };
+      });
+      try {
+        if (willBeActive) {
+          await invoke('enable_code_cave', {
+            pid,
+            moduleName: cheat.module,
+            siteRva: cheat.patchSite,
+            siteOriginal: cheat.siteOriginal,
+            cavePayload: cheat.cavePayload,
+          });
+        } else {
+          await invoke('disable_code_cave', {
+            pid,
+            moduleName: cheat.module,
+            siteRva: cheat.patchSite,
+            siteOriginal: cheat.siteOriginal,
+          });
+        }
+      } catch (err) {
+        onError?.(cheat.id, err instanceof Error ? err.message : String(err));
+        setActiveGame(prev => {
+          if (!prev) return null;
+          return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: !willBeActive } : c) };
+        });
+      }
+      return;
+    }
 
     if (cheat.type === 'action' || cheat.type === 'mono') {
       try {

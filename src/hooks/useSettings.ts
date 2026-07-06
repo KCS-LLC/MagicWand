@@ -22,6 +22,7 @@ export function useSettings() {
   const [pollInterval, setPollIntervalState] = useState(2000);
   const [scanMode, setScanModeState] = useState(false);
   const [alwaysOnTop, setAlwaysOnTopState] = useState(false);
+  const [devMode, setDevModeState] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -29,9 +30,11 @@ export function useSettings() {
       const pi = await store.get<number>('pollInterval');
       const sm = await store.get<boolean>('scanMode');
       const aot = await store.get<boolean>('alwaysOnTop');
+      const dm = await store.get<boolean>('devMode');
       if (pi != null) setPollIntervalState(pi);
       if (sm != null) setScanModeState(sm);
       if (aot != null) setAlwaysOnTopState(aot);
+      if (dm != null) setDevModeState(dm);
       setLoaded(true);
     }).catch(err => {
       console.error('useSettings: store failed to load, using defaults:', err);
@@ -46,6 +49,8 @@ export function useSettings() {
     setScanMode: makeSetter(setScanModeState, 'scanMode'),
     alwaysOnTop,
     setAlwaysOnTop: makeSetter(setAlwaysOnTopState, 'alwaysOnTop'),
+    devMode,
+    setDevMode: makeSetter(setDevModeState, 'devMode'),
     loaded,
   };
 }

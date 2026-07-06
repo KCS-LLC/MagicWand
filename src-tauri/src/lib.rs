@@ -200,21 +200,6 @@ fn resolve_ue5_prop(
 }
 
 #[tauri::command]
-async fn snapshot_module(pid: u32, module_name: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let (base, size) = engine::get_module_info(pid, &module_name)
-            .ok_or_else(|| format!("Module '{}' not found", module_name))?;
-        let regions = engine::snapshot_executable_pages(pid, base, size)?;
-        let total: usize = regions.iter().map(|(_, d)| d.len()).sum();
-        let count = regions.len();
-        *MODULE_SNAPSHOT.lock().unwrap() = Some((module_name, base, regions));
-        Ok(format!("Snapshotted {} bytes across {} executable regions at base 0x{:X}", total, count, base))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
 async fn diff_snapshot(pid: u32) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         diff_snapshot_inner(pid)
@@ -335,7 +320,7 @@ async fn scan_rarity_candidates(pid: u32, module_name: String) -> Result<Vec<Str
         // F3 0F 5E 07 = DIVSS XMM0,[RDI]  (4-byte [RDI] form)
         // F3 0F 59 07 = MULSS XMM0,[RDI]  (4-byte [RDI] form, fixed in WeMod's AoB)
         let wemod_aob = "25 FF 7F 00 00 F3 0F 2A ?? F3 0F 5E 07 F3 0F 59 07";
-        let exact = engine::aob_scan_all_range(pid, base, size, wemod_aob)?;
+        let exact = engine::aob_scan_all_range(pid, base, size, wemod_aob);
         if !exact.is_empty() {
             let mut results = vec![format!(
                 "WEMOD AOB EXACT: {} hit(s) — these are WeMod's original [RDI]-form targets:", exact.len()
@@ -351,7 +336,7 @@ async fn scan_rarity_candidates(pid: u32, module_name: String) -> Result<Vec<Str
         }
 
         // Secondary: 8-byte prefix (AND EAX + CVTSI2SS prefix) — annotate with what DIVSS form follows
-        let all = engine::aob_scan_all_range(pid, base, size, "25 FF 7F 00 00 F3 0F 2A")?;
+        let all = engine::aob_scan_all_range(pid, base, size, "25 FF 7F 00 00 F3 0F 2A");
         if all.is_empty() {
             return Ok(vec!["No WeMod AoB match and no AND EAX+CVTSI2SS found — BL4 code layout changed significantly".to_string()]);
         }
@@ -672,7 +657,6 @@ pub fn run() {
             dump_floats_at,
             list_ue5_classes,
             lookup_fnames,
-            snapshot_module,
             snapshot_by_module_name,
             snapshot_full,
             diff_snapshot,

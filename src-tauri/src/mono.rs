@@ -1,14 +1,4 @@
-use crate::engine::read_memory;
-
-fn read_ptr(pid: u32, addr: usize) -> Option<usize> {
-    let data = read_memory(pid, addr, 8).ok()?;
-    Some(usize::from_le_bytes(data.try_into().ok()?))
-}
-
-fn read_u32(pid: u32, addr: usize) -> Option<u32> {
-    let data = read_memory(pid, addr, 4).ok()?;
-    Some(u32::from_le_bytes(data.try_into().ok()?))
-}
+use crate::engine::{read_memory, read_ptr, read_u32};
 
 fn read_u16(pid: u32, addr: usize) -> Option<u16> {
     let data = read_memory(pid, addr, 2).ok()?;

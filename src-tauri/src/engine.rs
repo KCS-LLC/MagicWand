@@ -65,121 +65,37 @@ pub fn aob_scan(pid: u32, module_name: &str, pattern: &str) -> Result<usize, Str
 }
 
 pub fn aob_scan_range(pid: u32, base: usize, size: usize, pattern: &str) -> Option<usize> {
-    let pattern_bytes: Vec<Option<u8>> = pattern
-        .split_whitespace()
-        .map(|b| if b == "??" || b == "?" { None } else { u8::from_str_radix(b, 16).ok() })
-        .collect();
-    if pattern_bytes.is_empty() { return None; }
-    let pat_len = pattern_bytes.len();
-    const CHUNK: usize = 16 * 1024 * 1024;
-
-    // Use VirtualQueryEx to walk only committed, readable pages within the range.
-    // This avoids allocating buffers for the large unmapped gaps that inflate SizeOfImage
-    // on big modules (BL4 reports 883 MB virtual but most of that is reserved/unmapped).
-    unsafe {
-        let handle = ProcessHandle::open(pid).ok()?;
-        let range_end = base + size;
-        let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
-        let mut region_addr = base;
-
-        while region_addr < range_end {
-            let mut mbi = MEMORY_BASIC_INFORMATION::default();
-            if VirtualQueryEx(
-                handle.0,
-                Some(region_addr as *const _),
-                &mut mbi,
-                std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
-            ) == 0 {
-                break;
-            }
-
-            let region_base = mbi.BaseAddress as usize;
-            let region_end  = region_base.saturating_add(mbi.RegionSize).min(range_end);
-            // Advance past this region regardless of whether we scan it.
-            region_addr = region_base.saturating_add(mbi.RegionSize);
-            if region_addr == 0 { break; }
-
-            if mbi.State != MEM_COMMIT || (mbi.Protect.0 & unreadable) != 0 {
-                continue; // skip reserved/free/guarded pages — no allocation needed
-            }
-
-            // Scan this committed region in 16 MB chunks to bound per-allocation size.
-            let mut pos = region_base.max(base);
-            while pos + pat_len <= region_end {
-                let chunk_size = CHUNK.min(region_end - pos);
-                if let Ok(data) = read_memory_raw(handle.0, pos, chunk_size) {
-                    if let Some(i) = data.windows(pat_len)
-                        .position(|w| w.iter().zip(&pattern_bytes).all(|(b, p)| p.map_or(true, |pb| *b == pb)))
-                    {
-                        return Some(pos + i);
-                    }
-                }
-                // Overlap by pat_len-1 to catch matches split across chunk boundaries.
-                // chunk_size >= pat_len here, so the step is always >= 1.
-                pos += chunk_size - (pat_len - 1);
-            }
-        }
-    }
-    None
+    aob_scan_all_range(pid, base, size, pattern).into_iter().next()
 }
 
-pub fn aob_scan_all_range(pid: u32, base: usize, size: usize, pattern: &str) -> Result<Vec<usize>, String> {
+pub fn aob_scan_all_range(pid: u32, base: usize, size: usize, pattern: &str) -> Vec<usize> {
     let pattern_bytes: Vec<Option<u8>> = pattern
         .split_whitespace()
         .map(|b| if b == "??" || b == "?" { None } else { u8::from_str_radix(b, 16).ok() })
         .collect();
-    if pattern_bytes.is_empty() { return Ok(vec![]); }
+    if pattern_bytes.is_empty() { return vec![]; }
     let pat_len = pattern_bytes.len();
-    const CHUNK: usize = 16 * 1024 * 1024;
     let mut matches = Vec::new();
 
-    unsafe {
-        let handle = ProcessHandle::open(pid).map_err(|e| e.to_string())?;
-        let range_end = base + size;
-        let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
-        let mut region_addr = base;
-
-        while region_addr < range_end {
-            let mut mbi = MEMORY_BASIC_INFORMATION::default();
-            if VirtualQueryEx(
-                handle.0,
-                Some(region_addr as *const _),
-                &mut mbi,
-                std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
-            ) == 0 {
-                break;
-            }
-
-            let region_base = mbi.BaseAddress as usize;
-            let region_end  = region_base.saturating_add(mbi.RegionSize).min(range_end);
-            region_addr = region_base.saturating_add(mbi.RegionSize);
-            if region_addr == 0 { break; }
-
-            if mbi.State != MEM_COMMIT || (mbi.Protect.0 & unreadable) != 0 {
-                continue;
-            }
-
-            let mut pos = region_base.max(base);
-            while pos + pat_len <= region_end {
-                let chunk_size = CHUNK.min(region_end - pos);
-                if let Ok(data) = read_memory_raw(handle.0, pos, chunk_size) {
-                    let mut search_pos = 0;
-                    while search_pos + pat_len <= data.len() {
-                        if let Some(i) = data[search_pos..].windows(pat_len)
-                            .position(|w| w.iter().zip(&pattern_bytes).all(|(b, p)| p.map_or(true, |pb| *b == pb)))
-                        {
-                            matches.push(pos + search_pos + i);
-                            search_pos += i + 1;
-                        } else {
-                            break;
-                        }
-                    }
+    // Walk only committed, readable pages within the range. This avoids allocating buffers
+    // for the large unmapped gaps that inflate SizeOfImage on big modules (BL4 reports
+    // 883 MB virtual but most of that is reserved/unmapped).
+    for (region_base, data) in walk_committed_regions(pid, base, size, false, usize::MAX) {
+        if data.len() < pat_len { continue; }
+        let mut search_pos = 0;
+        while search_pos + pat_len <= data.len() {
+            match data[search_pos..].windows(pat_len)
+                .position(|w| w.iter().zip(&pattern_bytes).all(|(b, p)| p.map_or(true, |pb| *b == pb)))
+            {
+                Some(i) => {
+                    matches.push(region_base + search_pos + i);
+                    search_pos += i + 1;
                 }
-                pos += chunk_size - (pat_len - 1);
+                None => break,
             }
         }
     }
-    Ok(matches)
+    matches
 }
 
 pub fn find_process_by_name(name: &str) -> Option<u32> {
@@ -237,43 +153,17 @@ pub fn resolve_pointer_path(pid: u32, base_address: usize, offsets: &[usize]) ->
 }
 
 pub fn scan_memory_for_bytes(pid: u32, needle: &[u8]) -> Result<Vec<usize>, String> {
-    unsafe {
-        let handle = ProcessHandle::open(pid)?;
-        let mut results = Vec::new();
-        let mut address: usize = 0;
-
-        loop {
-            let mut mbi = MEMORY_BASIC_INFORMATION::default();
-            let ret = VirtualQueryEx(
-                handle.0,
-                Some(address as *const _),
-                &mut mbi,
-                std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
-            );
-            if ret == 0 { break; }
-
-            let next = mbi.BaseAddress as usize + mbi.RegionSize;
-            let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
-
-            if mbi.State == MEM_COMMIT
-                && (mbi.Protect.0 & unreadable) == 0
-                && mbi.RegionSize <= 512 * 1024 * 1024
-            {
-                if let Ok(data) = read_memory_raw(handle.0, mbi.BaseAddress as usize, mbi.RegionSize) {
-                    for (i, window) in data.windows(needle.len()).enumerate() {
-                        if window == needle {
-                            results.push(mbi.BaseAddress as usize + i);
-                        }
-                    }
-                }
+    // Whole address space (base 0, unbounded size); cap individual region reads at 512MB
+    // so a single huge anonymous mapping (JIT heap, etc.) can't blow up memory usage.
+    let mut results = Vec::new();
+    for (region_base, data) in walk_committed_regions(pid, 0, usize::MAX, false, 512 * 1024 * 1024) {
+        for (i, window) in data.windows(needle.len()).enumerate() {
+            if window == needle {
+                results.push(region_base + i);
             }
-
-            address = next;
-            if address == 0 { break; }
         }
-
-        Ok(results)
     }
+    Ok(results)
 }
 
 pub fn scan_for_int(pid: u32, value: i32) -> Result<Vec<usize>, String> {
@@ -288,6 +178,16 @@ pub fn scan_for_double(pid: u32, value: f64) -> Result<Vec<usize>, String> {
     scan_memory_for_bytes(pid, &value.to_le_bytes())
 }
 
+pub fn read_ptr(pid: u32, addr: usize) -> Option<usize> {
+    let data = read_memory(pid, addr, 8).ok()?;
+    Some(usize::from_le_bytes(data.try_into().ok()?))
+}
+
+pub fn read_u32(pid: u32, addr: usize) -> Option<u32> {
+    let data = read_memory(pid, addr, 4).ok()?;
+    Some(u32::from_le_bytes(data.try_into().ok()?))
+}
+
 pub fn read_double(pid: u32, address: usize) -> Result<f64, String> {
     let data = read_memory(pid, address, 8)?;
     data.try_into()
@@ -296,10 +196,13 @@ pub fn read_double(pid: u32, address: usize) -> Result<f64, String> {
 }
 
 pub fn write_double(pid: u32, address: usize, value: f64) -> Result<(), String> {
-    write_memory(pid, address, &value.to_le_bytes())
+    write_memory_raw(pid, address, &value.to_le_bytes())
 }
 
-pub fn write_memory(pid: u32, address: usize, data: &[u8]) -> Result<(), String> {
+// Writes directly via WriteProcessMemory; fails on read-only/executable pages.
+// Caller must guarantee the target is already writable (data sections, allocations
+// made with PAGE_EXECUTE_READWRITE). For code sections, use write_memory_rw instead.
+pub fn write_memory_raw(pid: u32, address: usize, data: &[u8]) -> Result<(), String> {
     unsafe {
         let handle = ProcessHandle::open(pid)?;
         let mut bytes_written = 0;
@@ -314,7 +217,9 @@ pub fn write_memory(pid: u32, address: usize, data: &[u8]) -> Result<(), String>
     }
 }
 
-pub fn patch_memory(pid: u32, address: usize, data: &[u8]) -> Result<(), String> {
+// Forces the target page to PAGE_EXECUTE_READWRITE, writes, then restores the
+// original protection. Use this for code patches; write_memory_raw will fail on them.
+pub fn write_memory_rw(pid: u32, address: usize, data: &[u8]) -> Result<(), String> {
     unsafe {
         let handle = ProcessHandle::open(pid)?;
         let mut old_protect = PAGE_PROTECTION_FLAGS::default();
@@ -397,41 +302,67 @@ pub fn free_alloc(pid: u32, addr: usize) -> Result<(), String> {
 pub fn set_bit_at(pid: u32, address: usize, bit: u8, set: bool) -> Result<(), String> {
     let data = read_memory(pid, address, 1)?;
     let byte = if set { data[0] | (1 << bit) } else { data[0] & !(1 << bit) };
-    write_memory(pid, address, &[byte])
+    write_memory_raw(pid, address, &[byte])
 }
 
-// Reads all committed executable pages within [base, base+size) and returns
-// (region_start, bytes) pairs. Used for before/after diffing of code patches.
-pub fn dump_module_to_file(pid: u32, module_name: &str, out_path: &str) -> Result<usize, String> {
-    let (base, size) = get_module_info(pid, module_name)
-        .ok_or_else(|| format!("Module '{}' not found", module_name))?;
-    // Read all committed pages within the module range; fill gaps with zeros.
-    let handle = ProcessHandle::open(pid)?;
-    let mut buf = vec![0u8; size];
+/// Walks committed, readable pages within [base, base+size), returning each region's
+/// (start address, bytes). When `exec_only` is set, only pages with an executable
+/// protection flag are included. Regions larger than `max_region_size` are skipped
+/// without reading — bounds scans over huge anonymous mappings (JIT heaps, etc.).
+fn walk_committed_regions(
+    pid: u32,
+    base: usize,
+    size: usize,
+    exec_only: bool,
+    max_region_size: usize,
+) -> Vec<(usize, Vec<u8>)> {
+    let handle = match ProcessHandle::open(pid) {
+        Ok(h) => h,
+        Err(_) => return Vec::new(),
+    };
+    let exec_mask = PAGE_EXECUTE_READ.0 | PAGE_EXECUTE_READWRITE.0 | 0x10u32 | 0x80u32;
+    let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
+    let range_end = base.saturating_add(size);
+    let mut regions: Vec<(usize, Vec<u8>)> = Vec::new();
+    let mut addr = base;
+
     unsafe {
-        let range_end = base.saturating_add(size);
-        let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
-        let mut addr = base;
         while addr < range_end {
             let mut mbi = MEMORY_BASIC_INFORMATION::default();
             if VirtualQueryEx(handle.0, Some(addr as *const _), &mut mbi,
                 std::mem::size_of::<MEMORY_BASIC_INFORMATION>()) == 0 { break; }
-            let rbase = mbi.BaseAddress as usize;
-            let rend = rbase.saturating_add(mbi.RegionSize).min(range_end);
-            addr = rbase.saturating_add(mbi.RegionSize);
+            let region_base = mbi.BaseAddress as usize;
+            let region_end = region_base.saturating_add(mbi.RegionSize).min(range_end);
+            addr = region_base.saturating_add(mbi.RegionSize);
             if addr == 0 { break; }
-            if mbi.State == MEM_COMMIT && (mbi.Protect.0 & unreadable) == 0 {
-                let read_base = rbase.max(base);
-                let read_size = rend.saturating_sub(read_base);
+
+            let committed = mbi.State == MEM_COMMIT && (mbi.Protect.0 & unreadable) == 0;
+            let allowed_prot = !exec_only || (mbi.Protect.0 & exec_mask) != 0;
+            if committed && allowed_prot && mbi.RegionSize <= max_region_size {
+                let read_base = region_base.max(base);
+                let read_size = region_end.saturating_sub(read_base);
                 if read_size > 0 {
                     if let Ok(data) = read_memory_raw(handle.0, read_base, read_size) {
-                        let off = read_base - base;
-                        let end = (off + data.len()).min(buf.len());
-                        buf[off..end].copy_from_slice(&data[..end - off]);
+                        regions.push((read_base, data));
                     }
                 }
             }
         }
+    }
+    regions
+}
+
+// Reads all committed pages within [base, base+size) and returns (region_start, bytes)
+// pairs. Used for before/after diffing of code patches.
+pub fn dump_module_to_file(pid: u32, module_name: &str, out_path: &str) -> Result<usize, String> {
+    let (base, size) = get_module_info(pid, module_name)
+        .ok_or_else(|| format!("Module '{}' not found", module_name))?;
+    // Fill gaps with zeros; only committed pages get real bytes.
+    let mut buf = vec![0u8; size];
+    for (region_base, data) in walk_committed_regions(pid, base, size, false, usize::MAX) {
+        let off = region_base - base;
+        let end = (off + data.len()).min(buf.len());
+        buf[off..end].copy_from_slice(&data[..end - off]);
     }
     std::fs::write(out_path, &buf).map_err(|e| format!("Write failed: {}", e))?;
     Ok(buf.len())
@@ -440,46 +371,27 @@ pub fn dump_module_to_file(pid: u32, module_name: &str, out_path: &str) -> Resul
 pub fn read_module_strings(pid: u32, module_name: &str, min_len: usize) -> Result<Vec<String>, String> {
     let (base, size) = get_module_info(pid, module_name)
         .ok_or_else(|| format!("Module '{}' not found", module_name))?;
-    let handle = ProcessHandle::open(pid)?;
     let mut out = Vec::<String>::new();
-    unsafe {
-        let range_end = base.saturating_add(size);
-        let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
-        let mut addr = base;
-        while addr < range_end {
-            let mut mbi = MEMORY_BASIC_INFORMATION::default();
-            if VirtualQueryEx(handle.0, Some(addr as *const _), &mut mbi,
-                std::mem::size_of::<MEMORY_BASIC_INFORMATION>()) == 0 { break; }
-            let rbase = mbi.BaseAddress as usize;
-            let rend = rbase.saturating_add(mbi.RegionSize).min(range_end);
-            addr = rbase.saturating_add(mbi.RegionSize);
-            if addr == 0 { break; }
-            if mbi.State != MEM_COMMIT || (mbi.Protect.0 & unreadable) != 0 { continue; }
-            let read_base = rbase.max(base);
-            let read_size = rend.saturating_sub(read_base);
-            if read_size == 0 { continue; }
-            if let Ok(data) = read_memory_raw(handle.0, read_base, read_size) {
-                let mut run = Vec::<u8>::new();
-                let rva_base = read_base - base;
-                for (i, &b) in data.iter().enumerate() {
-                    if b >= 0x20 && b < 0x7F {
-                        run.push(b);
-                    } else {
-                        if run.len() >= min_len {
-                            let rva = rva_base + i - run.len();
-                            if let Ok(s) = std::str::from_utf8(&run) {
-                                out.push(format!("RVA+0x{:08X}  {}", rva, s));
-                            }
-                        }
-                        run.clear();
-                    }
-                }
+    for (region_base, data) in walk_committed_regions(pid, base, size, false, usize::MAX) {
+        let mut run = Vec::<u8>::new();
+        let rva_base = region_base - base;
+        for (i, &b) in data.iter().enumerate() {
+            if b >= 0x20 && b < 0x7F {
+                run.push(b);
+            } else {
                 if run.len() >= min_len {
-                    let rva = rva_base + data.len() - run.len();
+                    let rva = rva_base + i - run.len();
                     if let Ok(s) = std::str::from_utf8(&run) {
                         out.push(format!("RVA+0x{:08X}  {}", rva, s));
                     }
                 }
+                run.clear();
+            }
+        }
+        if run.len() >= min_len {
+            let rva = rva_base + data.len() - run.len();
+            if let Ok(s) = std::str::from_utf8(&run) {
+                out.push(format!("RVA+0x{:08X}  {}", rva, s));
             }
         }
     }
@@ -566,77 +478,9 @@ pub fn list_executable_regions(pid: u32) -> Result<Vec<(usize, usize, String)>, 
 // Snapshots ALL committed readable pages in [base, base+size) — data + code.
 // Use this when the patch target may be in the .data section (e.g. a drop rate float).
 pub fn snapshot_all_pages(pid: u32, base: usize, size: usize) -> Result<Vec<(usize, Vec<u8>)>, String> {
-    unsafe {
-        let handle = ProcessHandle::open(pid)?;
-        let range_end = base.saturating_add(size);
-        let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
-        let mut regions: Vec<(usize, Vec<u8>)> = Vec::new();
-        let mut addr = base;
-
-        while addr < range_end {
-            let mut mbi = MEMORY_BASIC_INFORMATION::default();
-            if VirtualQueryEx(
-                handle.0,
-                Some(addr as *const _),
-                &mut mbi,
-                std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
-            ) == 0
-            {
-                break;
-            }
-            let region_base = mbi.BaseAddress as usize;
-            let region_end = region_base.saturating_add(mbi.RegionSize).min(range_end);
-            addr = region_base.saturating_add(mbi.RegionSize);
-            if addr == 0 {
-                break;
-            }
-
-            if mbi.State == MEM_COMMIT && (mbi.Protect.0 & unreadable) == 0 {
-                let read_base = region_base.max(base);
-                let read_size = region_end.saturating_sub(read_base);
-                if read_size > 0 {
-                    if let Ok(data) = read_memory_raw(handle.0, read_base, read_size) {
-                        regions.push((read_base, data));
-                    }
-                }
-            }
-        }
-        Ok(regions)
-    }
+    Ok(walk_committed_regions(pid, base, size, false, usize::MAX))
 }
 
 pub fn snapshot_executable_pages(pid: u32, base: usize, size: usize) -> Result<Vec<(usize, Vec<u8>)>, String> {
-    unsafe {
-        let handle = ProcessHandle::open(pid)?;
-        let range_end = base.saturating_add(size);
-        // All four executable page protection flags
-        let exec_mask = PAGE_EXECUTE_READ.0 | PAGE_EXECUTE_READWRITE.0 | 0x10u32 | 0x80u32;
-        let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
-        let mut regions: Vec<(usize, Vec<u8>)> = Vec::new();
-        let mut addr = base;
-
-        while addr < range_end {
-            let mut mbi = MEMORY_BASIC_INFORMATION::default();
-            if VirtualQueryEx(handle.0, Some(addr as *const _), &mut mbi,
-                std::mem::size_of::<MEMORY_BASIC_INFORMATION>()) == 0 { break; }
-            let region_base = mbi.BaseAddress as usize;
-            let region_end  = region_base.saturating_add(mbi.RegionSize).min(range_end);
-            addr = region_base.saturating_add(mbi.RegionSize);
-            if addr == 0 { break; }
-
-            if mbi.State == MEM_COMMIT
-                && (mbi.Protect.0 & exec_mask) != 0
-                && (mbi.Protect.0 & unreadable) == 0
-            {
-                let read_base = region_base.max(base);
-                let read_size = region_end.saturating_sub(read_base);
-                if read_size > 0 {
-                    if let Ok(data) = read_memory_raw(handle.0, read_base, read_size) {
-                        regions.push((read_base, data));
-                    }
-                }
-            }
-        }
-        Ok(regions)
-    }
+    Ok(walk_committed_regions(pid, base, size, true, usize::MAX))
 }

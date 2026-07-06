@@ -7,8 +7,8 @@
       "name": "Invincibility",
       "type": "ue5_prop",
       "module": "Borderlands4.exe",
-      "ue5GObjectsOffset": "0x11765A30",
-      "ue5GNamesOffset": "0x1167FDD0",
+      "ue5GObjectsOffset": 292969008,
+      "ue5GNamesOffset": 292027856,
       "ue5ClassName": "OakPlayerController",
       "ue5PropertyOffset": 976,
       "ue5Offsets": [98],
@@ -174,7 +174,6 @@
       "offsets": [],
       "onValue": 0,
       "patchSite": "0x96C77FA",
-      "siteOriginal": [37, 255, 127, 0, 0],
       "cavePayload": [
         80, 139, 7, 61, 0, 0, 180, 66,
         88, 114, 5,

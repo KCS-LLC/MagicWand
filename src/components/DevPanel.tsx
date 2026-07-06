@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { desktopDir } from '@tauri-apps/api/path';
 import { GameTrainer } from '../hooks/useTrainer';
 import { parseLePtr64 } from '../utils/memory';
 
@@ -22,8 +23,6 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
     invoke<string>('resolve_ue5_prop', {
       pid,
       moduleName: 'Borderlands4.exe',
-      gobjectsAob: '',
-      gnamesAob: '',
       gobjectsOffset: 0x11765A30,
       gnamesOffset: 0x1167FDD0,
       className,
@@ -193,7 +192,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                   <button className="fire-button" disabled={!pid} onClick={async () => {
                     if (!pid) return;
                     const modName = snapTarget.trim() || 'Trainer_49051_20e30ce373.dll';
-                    const outPath = `C:\\Users\\renga\\OneDrive\\Desktop\\wemod_trainer_dump.dll`;
+                    const outPath = `${await desktopDir()}wemod_trainer_dump.dll`;
                     try {
                       setDiffStatus(`Dumping ${modName} to desktop...`);
                       const msg = await invoke<string>('dump_module_to_file', { pid, moduleName: modName, outPath });

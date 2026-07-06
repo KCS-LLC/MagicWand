@@ -190,8 +190,8 @@ fn resolve_mono_field(
 fn resolve_ue5_prop(
     pid: u32,
     module_name: String,
-    gobjects_aob: String,
-    gnames_aob: String,
+    gobjects_aob: Option<String>,
+    gnames_aob: Option<String>,
     gobjects_offset: Option<usize>,
     gnames_offset: Option<usize>,
     class_name: String,
@@ -203,7 +203,9 @@ fn resolve_ue5_prop(
     let addr = if let (Some(go), Some(gn)) = (gobjects_offset, gnames_offset) {
         ue5::resolve_ue5_prop_static(pid, base, size, go, gn, &class_name, property_offset, chain)?
     } else {
-        ue5::resolve_ue5_prop(pid, base, size, &gobjects_aob, &gnames_aob, &class_name, property_offset, chain)?
+        let aob_go = gobjects_aob.as_deref().unwrap_or("");
+        let aob_gn = gnames_aob.as_deref().unwrap_or("");
+        ue5::resolve_ue5_prop(pid, base, size, aob_go, aob_gn, &class_name, property_offset, chain)?
     };
     Ok(format!("0x{:X}", addr))
 }

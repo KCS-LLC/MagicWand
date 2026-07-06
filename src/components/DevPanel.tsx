@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { GameTrainer } from '../hooks/useTrainer';
+import { parseLePtr64 } from '../utils/memory';
 
 interface DevPanelProps {
   pid: number | null;
@@ -16,6 +17,19 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
   const [resultsFilter, setResultsFilter] = useState<string>('');
   const dropRateInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const [dropRateActive, setDropRateActive] = useState(false);
+
+  const bl4Prop = (className: string) =>
+    invoke<string>('resolve_ue5_prop', {
+      pid,
+      moduleName: 'Borderlands4.exe',
+      gobjectsAob: '',
+      gnamesAob: '',
+      gobjectsOffset: 0x11765A30,
+      gnamesOffset: 0x1167FDD0,
+      className,
+      propertyOffset: 0,
+      extraOffsets: null,
+    });
 
   const applyDropRatePatch = async () => {
     if (!pid || !activeGame) return;
@@ -119,17 +133,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                     try {
                       setDiffStatus('Resolving NexusConfigStoreInventoryRarity...');
                       setDiffResults([]);
-                      const addr = await invoke<string>('resolve_ue5_prop', {
-                        pid,
-                        moduleName: 'Borderlands4.exe',
-                        gobjectsAob: '',
-                        gnamesAob: '',
-                        gobjectsOffset: 0x11765A30,
-                        gnamesOffset: 0x1167FDD0,
-                        className: 'NexusConfigStoreInventoryRarity',
-                        propertyOffset: 0,
-                        extraOffsets: null,
-                      });
+                      const addr = await bl4Prop('NexusConfigStoreInventoryRarity');
                       setDiffStatus(`Found at ${addr} — dumping floats...`);
                       const lines = await invoke<string[]>('dump_floats_at', { pid, address: addr, count: 256 });
                       setDiffResults([`Object: ${addr}`, ...lines]);
@@ -141,12 +145,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                     try {
                       setDiffStatus('Resolving NexusConfigStoreInventoryRarity...');
                       setDiffResults([]);
-                      const addr = await invoke<string>('resolve_ue5_prop', {
-                        pid, moduleName: 'Borderlands4.exe', gobjectsAob: '', gnamesAob: '',
-                        gobjectsOffset: 0x11765A30, gnamesOffset: 0x1167FDD0,
-                        className: 'NexusConfigStoreInventoryRarity',
-                        propertyOffset: 0, extraOffsets: null,
-                      });
+                      const addr = await bl4Prop('NexusConfigStoreInventoryRarity');
                       const objBase = BigInt(addr);
                       const allLines: string[] = [`Object: ${addr}`];
                       // TArray-shaped slots identified from the 1024B dump
@@ -159,10 +158,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                       for (const [off, label] of slots) {
                         const ptrAddr = `0x${(objBase + off).toString(16).toUpperCase()}`;
                         const rawHex = await invoke<string>('read_raw_bytes', { pid, address: ptrAddr, count: 8 });
-                        const b = rawHex.split(' ').map((h: string) => parseInt(h, 16));
-                        const lo = BigInt(b[0]) | (BigInt(b[1]) << 8n) | (BigInt(b[2]) << 16n) | (BigInt(b[3]) << 24n);
-                        const hi = BigInt(b[4]) | (BigInt(b[5]) << 8n) | (BigInt(b[6]) << 16n) | (BigInt(b[7]) << 24n);
-                        const dataPtr = (hi << 32n) | lo;
+                        const dataPtr = parseLePtr64(rawHex.split(' '));
                         const dataPtrStr = `0x${dataPtr.toString(16).toUpperCase()}`;
                         allLines.push(`--- ${label} → ${dataPtrStr} ---`);
                         try {
@@ -610,11 +606,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                     try {
                       setDiffStatus('Resolving NexusConfigStoreItemPool...');
                       setDiffResults([]);
-                      const addr = await invoke<string>('resolve_ue5_prop', {
-                        pid, moduleName: 'Borderlands4.exe', gobjectsAob: '', gnamesAob: '',
-                        gobjectsOffset: 0x11765A30, gnamesOffset: 0x1167FDD0,
-                        className: 'NexusConfigStoreItemPool', propertyOffset: 0, extraOffsets: null,
-                      });
+                      const addr = await bl4Prop('NexusConfigStoreItemPool');
                       const lines = await invoke<string[]>('dump_floats_at', { pid, address: addr, count: 128 });
                       setDiffResults([`Object: ${addr}`, ...lines]);
                       setDiffStatus(`Dumped NexusConfigStoreItemPool`);
@@ -625,11 +617,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                     try {
                       setDiffStatus('Resolving NexusConfigStoreLootConfig...');
                       setDiffResults([]);
-                      const addr = await invoke<string>('resolve_ue5_prop', {
-                        pid, moduleName: 'Borderlands4.exe', gobjectsAob: '', gnamesAob: '',
-                        gobjectsOffset: 0x11765A30, gnamesOffset: 0x1167FDD0,
-                        className: 'NexusConfigStoreLootConfig', propertyOffset: 0, extraOffsets: null,
-                      });
+                      const addr = await bl4Prop('NexusConfigStoreLootConfig');
                       const lines = await invoke<string[]>('dump_floats_at', { pid, address: addr, count: 256 });
                       setDiffResults([`Object: ${addr}`, ...lines]);
                       setDiffStatus(`Dumped NexusConfigStoreLootConfig`);
@@ -640,11 +628,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                     try {
                       setDiffStatus('Resolving NexusConfigStore_OakUINameWeightedListDef...');
                       setDiffResults([]);
-                      const addr = await invoke<string>('resolve_ue5_prop', {
-                        pid, moduleName: 'Borderlands4.exe', gobjectsAob: '', gnamesAob: '',
-                        gobjectsOffset: 0x11765A30, gnamesOffset: 0x1167FDD0,
-                        className: 'NexusConfigStore_OakUINameWeightedListDef', propertyOffset: 0, extraOffsets: null,
-                      });
+                      const addr = await bl4Prop('NexusConfigStore_OakUINameWeightedListDef');
                       const lines = await invoke<string[]>('dump_floats_at', { pid, address: addr, count: 256 });
                       setDiffResults([`Object: ${addr}`, ...lines]);
                       setDiffStatus(`Dumped OakUINameWeightedListDef`);
@@ -655,11 +639,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                     try {
                       setDiffStatus('Resolving NexusConfigStoreItemPoolList...');
                       setDiffResults([]);
-                      const addr = await invoke<string>('resolve_ue5_prop', {
-                        pid, moduleName: 'Borderlands4.exe', gobjectsAob: '', gnamesAob: '',
-                        gobjectsOffset: 0x11765A30, gnamesOffset: 0x1167FDD0,
-                        className: 'NexusConfigStoreItemPoolList', propertyOffset: 0, extraOffsets: null,
-                      });
+                      const addr = await bl4Prop('NexusConfigStoreItemPoolList');
                       const lines = await invoke<string[]>('dump_floats_at', { pid, address: addr, count: 256 });
                       setDiffResults([`Object: ${addr}`, ...lines]);
                       setDiffStatus(`Dumped NexusConfigStoreItemPoolList`);
@@ -670,11 +650,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                     try {
                       setDiffStatus('Resolving NexusConfigStoreLuckCategory...');
                       setDiffResults([]);
-                      const addr = await invoke<string>('resolve_ue5_prop', {
-                        pid, moduleName: 'Borderlands4.exe', gobjectsAob: '', gnamesAob: '',
-                        gobjectsOffset: 0x11765A30, gnamesOffset: 0x1167FDD0,
-                        className: 'NexusConfigStoreLuckCategory', propertyOffset: 0, extraOffsets: null,
-                      });
+                      const addr = await bl4Prop('NexusConfigStoreLuckCategory');
                       const lines = await invoke<string[]>('dump_floats_at', { pid, address: addr, count: 256 });
                       setDiffResults([`Object: ${addr}`, ...lines]);
                       setDiffStatus('Dumped NexusConfigStoreLuckCategory');
@@ -685,11 +661,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                     try {
                       setDiffStatus('Resolving NexusConfigStoreLuckCategory ptrs...');
                       setDiffResults([]);
-                      const addr = await invoke<string>('resolve_ue5_prop', {
-                        pid, moduleName: 'Borderlands4.exe', gobjectsAob: '', gnamesAob: '',
-                        gobjectsOffset: 0x11765A30, gnamesOffset: 0x1167FDD0,
-                        className: 'NexusConfigStoreLuckCategory', propertyOffset: 0, extraOffsets: null,
-                      });
+                      const addr = await bl4Prop('NexusConfigStoreLuckCategory');
                       const objBase = BigInt(addr);
                       const allLines: string[] = [`Object: ${addr}`];
                       // TArray slots identified from flat dump: +0x040 (Num=1), +0x380 (Num=1)
@@ -700,10 +672,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                       for (const [off, label] of slots) {
                         const ptrAddr = `0x${(objBase + off).toString(16).toUpperCase()}`;
                         const rawHex = await invoke<string>('read_raw_bytes', { pid, address: ptrAddr, count: 8 });
-                        const b = rawHex.split(' ').map((h: string) => parseInt(h, 16));
-                        const lo = BigInt(b[0]) | (BigInt(b[1]) << 8n) | (BigInt(b[2]) << 16n) | (BigInt(b[3]) << 24n);
-                        const hi = BigInt(b[4]) | (BigInt(b[5]) << 8n) | (BigInt(b[6]) << 16n) | (BigInt(b[7]) << 24n);
-                        const dataPtr = (hi << 32n) | lo;
+                        const dataPtr = parseLePtr64(rawHex.split(' '));
                         const dataPtrStr = `0x${dataPtr.toString(16).toUpperCase()}`;
                         allLines.push(`--- ${label} → ${dataPtrStr} ---`);
                         try {
@@ -719,18 +688,11 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                     if (!pid) return;
                     try {
                       setDiffStatus('Resolving LuckCategory...');
-                      const addr = await invoke<string>('resolve_ue5_prop', {
-                        pid, moduleName: 'Borderlands4.exe', gobjectsAob: '', gnamesAob: '',
-                        gobjectsOffset: 0x11765A30, gnamesOffset: 0x1167FDD0,
-                        className: 'NexusConfigStoreLuckCategory', propertyOffset: 0, extraOffsets: null,
-                      });
+                      const addr = await bl4Prop('NexusConfigStoreLuckCategory');
                       const objBase = BigInt(addr);
                       // Read TArray Data ptr at +0x040 (8 bytes little-endian)
                       const ptrRaw = await invoke<string>('read_raw_bytes', { pid, address: `0x${(objBase + 0x040n).toString(16).toUpperCase()}`, count: 8 });
-                      const b = ptrRaw.split(' ').map((h: string) => parseInt(h, 16));
-                      const lo = BigInt(b[0])|(BigInt(b[1])<<8n)|(BigInt(b[2])<<16n)|(BigInt(b[3])<<24n);
-                      const hi = BigInt(b[4])|(BigInt(b[5])<<8n)|(BigInt(b[6])<<16n)|(BigInt(b[7])<<24n);
-                      const dataPtr = (hi << 32n) | lo;
+                      const dataPtr = parseLePtr64(ptrRaw.split(' '));
                       const lines: string[] = [`Object: ${addr}`, `TArray data → 0x${dataPtr.toString(16).toUpperCase()}`];
                       // 100.0 as LE IEEE 754 = [0x00, 0x00, 0xC8, 0x42]
                       const val100 = [0x00, 0x00, 0xC8, 0x42];
@@ -752,17 +714,10 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                   <button className="fire-button" disabled={!pid} onClick={async () => {
                     if (!pid) return;
                     try {
-                      const addr = await invoke<string>('resolve_ue5_prop', {
-                        pid, moduleName: 'Borderlands4.exe', gobjectsAob: '', gnamesAob: '',
-                        gobjectsOffset: 0x11765A30, gnamesOffset: 0x1167FDD0,
-                        className: 'NexusConfigStoreLuckCategory', propertyOffset: 0, extraOffsets: null,
-                      });
+                      const addr = await bl4Prop('NexusConfigStoreLuckCategory');
                       const objBase = BigInt(addr);
                       const ptrRaw = await invoke<string>('read_raw_bytes', { pid, address: `0x${(objBase + 0x040n).toString(16).toUpperCase()}`, count: 8 });
-                      const b = ptrRaw.split(' ').map((h: string) => parseInt(h, 16));
-                      const lo = BigInt(b[0])|(BigInt(b[1])<<8n)|(BigInt(b[2])<<16n)|(BigInt(b[3])<<24n);
-                      const hi = BigInt(b[4])|(BigInt(b[5])<<8n)|(BigInt(b[6])<<16n)|(BigInt(b[7])<<24n);
-                      const dataPtr = (hi << 32n) | lo;
+                      const dataPtr = parseLePtr64(ptrRaw.split(' '));
                       // 1.0 as LE IEEE 754 = [0x00, 0x00, 0x80, 0x3F]
                       const val1 = [0x00, 0x00, 0x80, 0x3F];
                       const offsets = [0x190n, 0x194n, 0x198n, 0x19Cn,
@@ -819,11 +774,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                     try {
                       setDiffStatus('Resolving NexusConfigStoreGbxUEDataTableDefs...');
                       setDiffResults([]);
-                      const addr = await invoke<string>('resolve_ue5_prop', {
-                        pid, moduleName: 'Borderlands4.exe', gobjectsAob: '', gnamesAob: '',
-                        gobjectsOffset: 0x11765A30, gnamesOffset: 0x1167FDD0,
-                        className: 'NexusConfigStoreGbxUEDataTableDefs', propertyOffset: 0, extraOffsets: null,
-                      });
+                      const addr = await bl4Prop('NexusConfigStoreGbxUEDataTableDefs');
                       const objBase = BigInt(addr);
                       const lines: string[] = [`Object: ${addr}`];
                       const hexStr = await invoke<string>('read_raw_bytes', { pid, address: addr, count: 2048 });
@@ -837,9 +788,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                       // Follow 8-byte aligned pointers in first 512 bytes, scan 8KB each
                       for (let off = 0x30; off < 512; off += 8) {
                         if (off + 8 > bytes.length) break;
-                        const lo = BigInt(bytes[off]) | (BigInt(bytes[off+1]) << 8n) | (BigInt(bytes[off+2]) << 16n) | (BigInt(bytes[off+3]) << 24n);
-                        const hi = BigInt(bytes[off+4]) | (BigInt(bytes[off+5]) << 8n) | (BigInt(bytes[off+6]) << 16n) | (BigInt(bytes[off+7]) << 24n);
-                        const ptr = (hi << 32n) | lo;
+                        const ptr = parseLePtr64(bytes.slice(off, off + 8));
                         if (ptr >= 0x10000n && ptr < 0x7FFFFFFFFFFFFn) {
                           const ptrStr = `0x${ptr.toString(16).toUpperCase()}`;
                           try {
@@ -864,11 +813,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                     try {
                       setDiffStatus('Resolving GbxMirrorDataTable...');
                       setDiffResults([]);
-                      const addr = await invoke<string>('resolve_ue5_prop', {
-                        pid, moduleName: 'Borderlands4.exe', gobjectsAob: '', gnamesAob: '',
-                        gobjectsOffset: 0x11765A30, gnamesOffset: 0x1167FDD0,
-                        className: 'GbxMirrorDataTable', propertyOffset: 0, extraOffsets: null,
-                      });
+                      const addr = await bl4Prop('GbxMirrorDataTable');
                       const objBase = BigInt(addr);
                       const lines: string[] = [`Object: ${addr}`];
                       const hexStr = await invoke<string>('read_raw_bytes', { pid, address: addr, count: 1024 });
@@ -881,9 +826,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                       // Follow 8-byte aligned pointers in first 512 bytes, scan 8KB of each
                       for (let off = 0x30; off < 512; off += 8) {
                         if (off + 8 > bytes.length) break;
-                        const lo = BigInt(bytes[off]) | (BigInt(bytes[off+1]) << 8n) | (BigInt(bytes[off+2]) << 16n) | (BigInt(bytes[off+3]) << 24n);
-                        const hi = BigInt(bytes[off+4]) | (BigInt(bytes[off+5]) << 8n) | (BigInt(bytes[off+6]) << 16n) | (BigInt(bytes[off+7]) << 24n);
-                        const ptr = (hi << 32n) | lo;
+                        const ptr = parseLePtr64(bytes.slice(off, off + 8));
                         if (ptr >= 0x10000n && ptr < 0x7FFFFFFFFFFFFn) {
                           const ptrStr = `0x${ptr.toString(16).toUpperCase()}`;
                           try {
@@ -920,18 +863,12 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                     try {
                       setDiffStatus('Resolving GbxMirrorDataTable pairs...');
                       setDiffResults([]);
-                      const addr = await invoke<string>('resolve_ue5_prop', {
-                        pid, moduleName: 'Borderlands4.exe', gobjectsAob: '', gnamesAob: '',
-                        gobjectsOffset: 0x11765A30, gnamesOffset: 0x1167FDD0,
-                        className: 'GbxMirrorDataTable', propertyOffset: 0, extraOffsets: null,
-                      });
+                      const addr = await bl4Prop('GbxMirrorDataTable');
                       const objBase = BigInt(addr);
                       // TArray at +0x030: pairs ptr (8B), Num (4B at +0x038)
                       const ptrRaw = await invoke<string>('read_raw_bytes', { pid, address: `0x${(objBase + 0x30n).toString(16).toUpperCase()}`, count: 12 });
                       const pb = ptrRaw.split(' ').map((h: string) => parseInt(h, 16));
-                      const pairsLo = BigInt(pb[0])|(BigInt(pb[1])<<8n)|(BigInt(pb[2])<<16n)|(BigInt(pb[3])<<24n);
-                      const pairsHi = BigInt(pb[4])|(BigInt(pb[5])<<8n)|(BigInt(pb[6])<<16n)|(BigInt(pb[7])<<24n);
-                      const pairsPtr = (pairsHi << 32n) | pairsLo;
+                      const pairsPtr = parseLePtr64(pb.slice(0, 8));
                       const pairsNum = pb[8] | (pb[9] << 8) | (pb[10] << 16) | (pb[11] << 24);
                       const lines: string[] = [`Pairs @ 0x${pairsPtr.toString(16).toUpperCase()}, Num=${pairsNum}`];
                       setDiffResults([...lines]);
@@ -943,9 +880,7 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                         const entryRaw = await invoke<string>('read_raw_bytes', { pid, address: `0x${entryAddr.toString(16).toUpperCase()}`, count: 24 });
                         const eb = entryRaw.split(' ').map((h: string) => parseInt(h, 16));
                         const fnameIdx = eb[0]|(eb[1]<<8)|(eb[2]<<16)|(eb[3]<<24);
-                        const rowLo = BigInt(eb[8])|(BigInt(eb[9])<<8n)|(BigInt(eb[10])<<16n)|(BigInt(eb[11])<<24n);
-                        const rowHi = BigInt(eb[12])|(BigInt(eb[13])<<8n)|(BigInt(eb[14])<<16n)|(BigInt(eb[15])<<24n);
-                        const rowPtr = (rowHi << 32n) | rowLo;
+                        const rowPtr = parseLePtr64(eb.slice(8, 16));
                         if (rowPtr < 0x10000n) continue;
                         try {
                           const rowRaw = await invoke<string>('read_raw_bytes', { pid, address: `0x${rowPtr.toString(16).toUpperCase()}`, count: 64 });

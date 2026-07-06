@@ -16,6 +16,16 @@ struct CaveEntry {
 static CAVE_STATE: LazyLock<Mutex<HashMap<String, CaveEntry>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Runs `$body` on the blocking thread pool and flattens the JoinError into the
+/// command's `Result<_, String>`, matching every #[tauri::command] async wrapper.
+macro_rules! blocking {
+    ($body:expr) => {
+        tauri::async_runtime::spawn_blocking(move || $body)
+            .await
+            .map_err(|e| e.to_string())?
+    };
+}
+
 #[tauri::command]
 fn scan_games() -> Vec<scanner::DetectedGame> {
     scanner::scan_all()
@@ -33,23 +43,17 @@ fn get_module_base(pid: u32, module_name: &str) -> Option<String> {
 
 #[tauri::command]
 async fn aob_scan_range(pid: u32, base: String, size: usize, pattern: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    blocking!({
         let base_addr = parse_addr(&base)? as usize;
         engine::aob_scan_range(pid, base_addr, size, &pattern)
             .map(|a| format!("0x{:X}", a))
             .ok_or_else(|| "Pattern not found".to_string())
     })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 async fn aob_scan(pid: u32, module_name: String, pattern: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        engine::aob_scan(pid, &module_name, &pattern).map(|r| r.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    blocking!({ engine::aob_scan(pid, &module_name, &pattern).map(|r| r.to_string()) })
 }
 
 fn parse_addr(s: &str) -> Result<u64, String> {
@@ -59,6 +63,11 @@ fn parse_addr(s: &str) -> Result<u64, String> {
     } else {
         clean.parse::<u64>().map_err(|e| format!("Decimal parse err: {}", e))
     }
+}
+
+fn require_module(pid: u32, name: &str) -> Result<(usize, usize), String> {
+    engine::get_module_info(pid, name)
+        .ok_or_else(|| format!("Module '{}' not found", name))
 }
 
 fn read_4bytes(pid: u32, address: &str) -> Result<[u8; 4], String> {
@@ -75,9 +84,7 @@ fn resolve_pointer(
     base_offset: String,
     offsets: Vec<String>,
 ) -> Result<String, String> {
-    let module_base = engine::get_module_info(pid, &module_name)
-        .map(|(addr, _)| addr)
-        .ok_or_else(|| format!("Module {} not found", module_name))?;
+    let (module_base, _) = require_module(pid, &module_name)?;
 
     let start_address = (module_base as u64) + parse_addr(&base_offset)?;
 
@@ -148,8 +155,7 @@ fn resolve_mono_chain(
     final_offset: usize,
     instance_field_is_ref: Option<bool>,
 ) -> Result<String, String> {
-    let (mono_base, _) = engine::get_module_info(pid, &module_name)
-        .ok_or_else(|| format!("Module '{}' not found in process", module_name))?;
+    let (mono_base, _) = require_module(pid, &module_name)?;
     let addr = mono::resolve_mono_chain(
         pid, mono_base, &assembly, &namespace, &class_name,
         &static_field, via_parent, &instance_field, final_offset,
@@ -168,8 +174,7 @@ fn resolve_mono_field(
     field_name: String,
     is_static: bool,
 ) -> Result<String, String> {
-    let (mono_base, _) = engine::get_module_info(pid, &module_name)
-        .ok_or_else(|| format!("Module '{}' not found in process", module_name))?;
+    let (mono_base, _) = require_module(pid, &module_name)?;
     let addr = mono::resolve_mono_field(
         pid, mono_base, &assembly, &namespace, &class_name, &field_name, is_static,
     )?;
@@ -188,8 +193,7 @@ fn resolve_ue5_prop(
     property_offset: usize,
     extra_offsets: Option<Vec<usize>>,
 ) -> Result<String, String> {
-    let (base, size) = engine::get_module_info(pid, &module_name)
-        .ok_or_else(|| format!("Module '{}' not found", module_name))?;
+    let (base, size) = require_module(pid, &module_name)?;
     let chain = extra_offsets.as_deref().unwrap_or(&[]);
     let addr = if let (Some(go), Some(gn)) = (gobjects_offset, gnames_offset) {
         ue5::resolve_ue5_prop_static(pid, base, size, go, gn, &class_name, property_offset, chain)?
@@ -201,11 +205,7 @@ fn resolve_ue5_prop(
 
 #[tauri::command]
 async fn diff_snapshot(pid: u32) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        diff_snapshot_inner(pid)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    blocking!({ diff_snapshot_inner(pid) })
 }
 
 fn diff_snapshot_inner(pid: u32) -> Result<Vec<String>, String> {
@@ -252,16 +252,14 @@ fn read_snapshot_region(rva: usize, size: usize) -> Result<String, String> {
 
 #[tauri::command]
 fn lookup_fnames(pid: u32, module_name: String, gnames_offset: usize, indices: Vec<u32>) -> Result<Vec<String>, String> {
-    let (base, _) = engine::get_module_info(pid, &module_name)
-        .ok_or_else(|| format!("Module '{}' not found", module_name))?;
+    let (base, _) = require_module(pid, &module_name)?;
     let off = ue5::Ue5Offsets::ue5_default();
     Ok(ue5::lookup_fnames(pid, base + gnames_offset, &indices, &off))
 }
 
 #[tauri::command]
 fn list_ue5_classes(pid: u32, module_name: String, gobjects_offset: usize, gnames_offset: usize, keyword: String) -> Result<Vec<String>, String> {
-    let (base, _) = engine::get_module_info(pid, &module_name)
-        .ok_or_else(|| format!("Module '{}' not found", module_name))?;
+    let (base, _) = require_module(pid, &module_name)?;
     let off = ue5::Ue5Offsets::ue5_default();
     ue5::list_classes_by_keyword(pid, base + gobjects_offset, base + gnames_offset, &keyword, &off)
 }
@@ -312,9 +310,8 @@ fn read_raw_bytes(pid: u32, address: String, count: usize) -> Result<String, Str
 /// to [RIP+rel32] and WeMod changed approach. Falls back to broader 8-byte prefix scan.
 #[tauri::command]
 async fn scan_rarity_candidates(pid: u32, module_name: String) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let (base, size) = engine::get_module_info(pid, &module_name)
-            .ok_or_else(|| format!("Module {} not found", module_name))?;
+    blocking!({
+        let (base, size) = require_module(pid, &module_name)?;
 
         // Primary: full WeMod AoB — AND EAX + CVTSI2SS(any reg) + DIVSS[RDI] + MULSS[RDI]
         // F3 0F 5E 07 = DIVSS XMM0,[RDI]  (4-byte [RDI] form)
@@ -361,8 +358,6 @@ async fn scan_rarity_candidates(pid: u32, module_name: String) -> Result<Vec<Str
         }
         Ok(results)
     })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Install a code cave for the legendary gate cheat.
@@ -377,9 +372,8 @@ async fn enable_code_cave(
     site_rva: String,
     cave_payload: Vec<u8>,
 ) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let (base, _) = engine::get_module_info(pid, &module_name)
-            .ok_or_else(|| format!("Module {} not found", module_name))?;
+    blocking!({
+        let (base, _) = require_module(pid, &module_name)?;
         let rva = parse_addr(&site_rva)? as usize;
         let site_addr = base + rva;
 
@@ -415,13 +409,11 @@ async fn enable_code_cave(
         crate::mwlog!("[enable_code_cave] cave=0x{:X} site=0x{:X} (RVA 0x{})", cave_addr, site_addr, site_rva);
         Ok(())
     })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 async fn disable_code_cave(pid: u32, cheat_id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    blocking!({
         let entry = CAVE_STATE.lock().unwrap().remove(&cheat_id)
             .ok_or("No active code cave for this cheat")?;
 
@@ -433,13 +425,11 @@ async fn disable_code_cave(pid: u32, cheat_id: String) -> Result<(), String> {
         crate::mwlog!("[disable_code_cave] freed cave=0x{:X}", entry.cave_addr);
         Ok(())
     })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 async fn find_wemod_drop_cave(pid: u32) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    blocking!({
         let regions = engine::list_executable_regions(pid)?;
         const PAGE: usize = 4096;
         for (base, size, _) in &regions {
@@ -471,8 +461,6 @@ async fn find_wemod_drop_cave(pid: u32) -> Result<Vec<String>, String> {
         }
         Err("WeMod drop rate cave not found — WeMod may not be injected or drop rate was never enabled".to_string())
     })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -484,9 +472,8 @@ async fn find_outside_jmps(pid: u32, module_name: String) -> Result<Vec<String>,
     // The cave starts with CMP [drop_rarity],1 ; JNE ; float-compare vs 90.0, then this tail.
     // The tail is unique and 15 bytes — no wildcards needed.
     // Enable WeMod's "Max Legendary Drop Rate" cheat before running this.
-    tauri::async_runtime::spawn_blocking(move || {
-        let (mod_base, mod_size) = engine::get_module_info(pid, &module_name)
-            .ok_or_else(|| format!("Module {} not found", module_name))?;
+    blocking!({
+        let (mod_base, mod_size) = require_module(pid, &module_name)?;
         let mod_end = mod_base + mod_size;
         let regions = engine::list_executable_regions(pid)?;
         let mut results = Vec::new();
@@ -547,27 +534,19 @@ async fn find_outside_jmps(pid: u32, module_name: String) -> Result<Vec<String>,
         }
         Ok(results)
     })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 async fn dump_module_to_file(pid: u32, module_name: String, out_path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    blocking!({
         let bytes = engine::dump_module_to_file(pid, &module_name, &out_path)?;
         Ok(format!("Dumped {:.2}MB to {}", bytes as f64 / 1_048_576.0, out_path))
     })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 async fn read_module_strings(pid: u32, module_name: String, min_len: usize) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        engine::read_module_strings(pid, &module_name, min_len)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    blocking!({ engine::read_module_strings(pid, &module_name, min_len) })
 }
 
 #[tauri::command]
@@ -581,32 +560,26 @@ fn list_modules(pid: u32) -> Result<Vec<String>, String> {
 
 #[tauri::command]
 async fn snapshot_full(pid: u32, module_name: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let (base, size) = engine::get_module_info(pid, &module_name)
-            .ok_or_else(|| format!("Module '{}' not found", module_name))?;
+    blocking!({
+        let (base, size) = require_module(pid, &module_name)?;
         let regions = engine::snapshot_all_pages(pid, base, size)?;
         let total: usize = regions.iter().map(|(_, d)| d.len()).sum();
         let count = regions.len();
         *MODULE_SNAPSHOT.lock().unwrap() = Some((module_name.clone(), base, regions));
         Ok(format!("Full snapshot {} pages ({:.1}MB) — {} @ 0x{:X}", count, total as f64 / 1_048_576.0, module_name, base))
     })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 async fn snapshot_by_module_name(pid: u32, module_name: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let (base, size) = engine::get_module_info(pid, &module_name)
-            .ok_or_else(|| format!("Module '{}' not found", module_name))?;
+    blocking!({
+        let (base, size) = require_module(pid, &module_name)?;
         let regions = engine::snapshot_executable_pages(pid, base, size)?;
         let total: usize = regions.iter().map(|(_, d)| d.len()).sum();
         let count = regions.len();
         *MODULE_SNAPSHOT.lock().unwrap() = Some((module_name.clone(), base, regions));
         Ok(format!("Snapshotted {} bytes across {} exec regions — {} @ 0x{:X}", total, count, module_name, base))
     })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

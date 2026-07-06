@@ -1,4 +1,4 @@
-use crate::engine::{read_memory, aob_scan_range};
+use crate::engine::{read_memory, aob_scan_range, read_ptr, read_u32};
 use std::collections::HashMap;
 
 pub struct Ue5Offsets {
@@ -29,16 +29,6 @@ impl Ue5Offsets {
             gnames_chunk_size:     0x20000,
         }
     }
-}
-
-fn read_ptr(pid: u32, addr: usize) -> Option<usize> {
-    let data = read_memory(pid, addr, 8).ok()?;
-    Some(usize::from_le_bytes(data.try_into().ok()?))
-}
-
-fn read_u32(pid: u32, addr: usize) -> Option<u32> {
-    let data = read_memory(pid, addr, 4).ok()?;
-    Some(u32::from_le_bytes(data.try_into().ok()?))
 }
 
 fn read_i32(pid: u32, addr: usize) -> Option<i32> {

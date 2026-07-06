@@ -178,6 +178,16 @@ pub fn scan_for_double(pid: u32, value: f64) -> Result<Vec<usize>, String> {
     scan_memory_for_bytes(pid, &value.to_le_bytes())
 }
 
+pub fn read_ptr(pid: u32, addr: usize) -> Option<usize> {
+    let data = read_memory(pid, addr, 8).ok()?;
+    Some(usize::from_le_bytes(data.try_into().ok()?))
+}
+
+pub fn read_u32(pid: u32, addr: usize) -> Option<u32> {
+    let data = read_memory(pid, addr, 4).ok()?;
+    Some(u32::from_le_bytes(data.try_into().ok()?))
+}
+
 pub fn read_double(pid: u32, address: usize) -> Result<f64, String> {
     let data = read_memory(pid, address, 8)?;
     data.try_into()

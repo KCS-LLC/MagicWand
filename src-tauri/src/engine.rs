@@ -196,10 +196,13 @@ pub fn read_double(pid: u32, address: usize) -> Result<f64, String> {
 }
 
 pub fn write_double(pid: u32, address: usize, value: f64) -> Result<(), String> {
-    write_memory(pid, address, &value.to_le_bytes())
+    write_memory_raw(pid, address, &value.to_le_bytes())
 }
 
-pub fn write_memory(pid: u32, address: usize, data: &[u8]) -> Result<(), String> {
+// Writes directly via WriteProcessMemory; fails on read-only/executable pages.
+// Caller must guarantee the target is already writable (data sections, allocations
+// made with PAGE_EXECUTE_READWRITE). For code sections, use write_memory_rw instead.
+pub fn write_memory_raw(pid: u32, address: usize, data: &[u8]) -> Result<(), String> {
     unsafe {
         let handle = ProcessHandle::open(pid)?;
         let mut bytes_written = 0;
@@ -214,7 +217,9 @@ pub fn write_memory(pid: u32, address: usize, data: &[u8]) -> Result<(), String>
     }
 }
 
-pub fn patch_memory(pid: u32, address: usize, data: &[u8]) -> Result<(), String> {
+// Forces the target page to PAGE_EXECUTE_READWRITE, writes, then restores the
+// original protection. Use this for code patches; write_memory_raw will fail on them.
+pub fn write_memory_rw(pid: u32, address: usize, data: &[u8]) -> Result<(), String> {
     unsafe {
         let handle = ProcessHandle::open(pid)?;
         let mut old_protect = PAGE_PROTECTION_FLAGS::default();
@@ -297,7 +302,7 @@ pub fn free_alloc(pid: u32, addr: usize) -> Result<(), String> {
 pub fn set_bit_at(pid: u32, address: usize, bit: u8, set: bool) -> Result<(), String> {
     let data = read_memory(pid, address, 1)?;
     let byte = if set { data[0] | (1 << bit) } else { data[0] & !(1 << bit) };
-    write_memory(pid, address, &[byte])
+    write_memory_raw(pid, address, &[byte])
 }
 
 /// Walks committed, readable pages within [base, base+size), returning each region's

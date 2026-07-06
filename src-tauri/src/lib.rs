@@ -6,7 +6,12 @@ mod ue5;
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
-static MODULE_SNAPSHOT: Mutex<Option<(String, usize, Vec<(usize, Vec<u8>)>)>> = Mutex::new(None);
+struct ModuleSnapshot {
+    module_name: String,
+    base: usize,
+    regions: Vec<(usize, Vec<u8>)>,
+}
+static MODULE_SNAPSHOT: Mutex<Option<ModuleSnapshot>> = Mutex::new(None);
 
 struct CaveEntry {
     cave_addr: usize,
@@ -110,13 +115,13 @@ fn read_float(pid: u32, address: String) -> Result<f32, String> {
 #[tauri::command]
 fn write_int(pid: u32, address: String, value: i32) -> Result<(), String> {
     let addr = parse_addr(&address)?;
-    engine::write_memory(pid, addr as usize, &value.to_le_bytes())
+    engine::write_memory_raw(pid, addr as usize, &value.to_le_bytes())
 }
 
 #[tauri::command]
 fn write_float(pid: u32, address: String, value: f32) -> Result<(), String> {
     let addr = parse_addr(&address)?;
-    engine::write_memory(pid, addr as usize, &value.to_le_bytes())
+    engine::write_memory_raw(pid, addr as usize, &value.to_le_bytes())
 }
 
 #[tauri::command]
@@ -203,6 +208,34 @@ fn resolve_ue5_prop(
     Ok(format!("0x{:X}", addr))
 }
 
+/// Like resolve_ue5_prop, but takes an explicit Ue5Offsets struct instead of assuming
+/// ue5::Ue5Offsets::ue5_default(). Lets a trainer target UE5 games whose internal struct
+/// layout (FUObjectItem size, FName entry header, etc.) differs from the default.
+#[tauri::command]
+fn resolve_ue5_prop_custom(
+    pid: u32,
+    module_name: String,
+    gobjects_offset: usize,
+    gnames_offset: usize,
+    class_name: String,
+    property_offset: usize,
+    extra_offsets: Option<Vec<usize>>,
+    offsets: ue5::Ue5Offsets,
+) -> Result<String, String> {
+    let (base, _) = require_module(pid, &module_name)?;
+    let chain = extra_offsets.as_deref().unwrap_or(&[]);
+    let gobjects_base = base + gobjects_offset;
+    let gnames_base = base + gnames_offset;
+    let obj_ptr = ue5::find_object_by_class(pid, gobjects_base, gnames_base, &class_name, &offsets)?;
+    let initial = obj_ptr + property_offset;
+    let addr = if chain.is_empty() {
+        initial
+    } else {
+        engine::resolve_pointer_path(pid, initial, chain)?
+    };
+    Ok(format!("0x{:X}", addr))
+}
+
 #[tauri::command]
 async fn diff_snapshot(pid: u32) -> Result<Vec<String>, String> {
     blocking!({ diff_snapshot_inner(pid) })
@@ -210,16 +243,16 @@ async fn diff_snapshot(pid: u32) -> Result<Vec<String>, String> {
 
 fn diff_snapshot_inner(pid: u32) -> Result<Vec<String>, String> {
     let snap = MODULE_SNAPSHOT.lock().unwrap();
-    let (module_name, snap_base, regions) = snap.as_ref().ok_or("No snapshot — take a snapshot first")?;
-    let (current_base, _) = engine::get_module_info(pid, module_name)
+    let snapshot = snap.as_ref().ok_or("No snapshot — take a snapshot first")?;
+    let (current_base, _) = engine::get_module_info(pid, &snapshot.module_name)
         .ok_or("Module not found")?;
     let mut diffs: Vec<String> = Vec::new();
-    for (region_base, old_data) in regions {
+    for (region_base, old_data) in &snapshot.regions {
         if let Ok(new_data) = engine::read_memory(pid, *region_base, old_data.len()) {
             for (i, (old, new)) in old_data.iter().zip(new_data.iter()).enumerate() {
                 if old != new {
                     let abs = region_base + i;
-                    let rva = abs.wrapping_sub(*snap_base);
+                    let rva = abs.wrapping_sub(snapshot.base);
                     diffs.push(format!("RVA 0x{:X}  abs 0x{:X}  {:02X} -> {:02X}", rva, abs, old, new));
                 }
             }
@@ -236,9 +269,9 @@ fn diff_snapshot_inner(pid: u32) -> Result<Vec<String>, String> {
 #[tauri::command]
 fn read_snapshot_region(rva: usize, size: usize) -> Result<String, String> {
     let snap = MODULE_SNAPSHOT.lock().unwrap();
-    let (_, base, regions) = snap.as_ref().ok_or("No snapshot")?;
-    let target = base + rva;
-    for (region_base, data) in regions {
+    let snapshot = snap.as_ref().ok_or("No snapshot")?;
+    let target = snapshot.base + rva;
+    for (region_base, data) in &snapshot.regions {
         let region_end = region_base + data.len();
         if *region_base <= target && target < region_end {
             let start = target - region_base;
@@ -287,7 +320,7 @@ fn toggle_bit_flag(pid: u32, address: String, bit: u8, value: bool) -> Result<()
 #[tauri::command]
 fn write_byte(pid: u32, address: String, value: u8) -> Result<(), String> {
     let addr = parse_addr(&address)?;
-    engine::patch_memory(pid, addr as usize, &[value])
+    engine::write_memory_rw(pid, addr as usize, &[value])
 }
 
 #[tauri::command]
@@ -396,14 +429,14 @@ async fn enable_code_cave(
         cave_bytes.extend_from_slice(&rel32_back.to_le_bytes());
 
         // Write cave
-        engine::write_memory(pid, cave_addr, &cave_bytes)?;
+        engine::write_memory_raw(pid, cave_addr, &cave_bytes)?;
 
         // Write JMP from patch site to cave (E9 rel32, 5 bytes)
         let jmp_from = site_addr + 1; // E9 is 1 byte, rel32 follows
         let rel32_fwd = (cave_addr as i64 - (jmp_from as i64 + 4)) as i32;
         let mut jmp_bytes = vec![0xE9u8];
         jmp_bytes.extend_from_slice(&rel32_fwd.to_le_bytes());
-        engine::patch_memory(pid, site_addr, &jmp_bytes)?;
+        engine::write_memory_rw(pid, site_addr, &jmp_bytes)?;
 
         CAVE_STATE.lock().unwrap().insert(cheat_id, CaveEntry { cave_addr, site_addr, original_bytes });
         crate::mwlog!("[enable_code_cave] cave=0x{:X} site=0x{:X} (RVA 0x{})", cave_addr, site_addr, site_rva);
@@ -418,7 +451,7 @@ async fn disable_code_cave(pid: u32, cheat_id: String) -> Result<(), String> {
             .ok_or("No active code cave for this cheat")?;
 
         // Restore original bytes at patch site
-        engine::patch_memory(pid, entry.site_addr, &entry.original_bytes)?;
+        engine::write_memory_rw(pid, entry.site_addr, &entry.original_bytes)?;
 
         // Free the cave allocation
         let _ = engine::free_alloc(pid, entry.cave_addr);
@@ -565,7 +598,7 @@ async fn snapshot_full(pid: u32, module_name: String) -> Result<String, String> 
         let regions = engine::snapshot_all_pages(pid, base, size)?;
         let total: usize = regions.iter().map(|(_, d)| d.len()).sum();
         let count = regions.len();
-        *MODULE_SNAPSHOT.lock().unwrap() = Some((module_name.clone(), base, regions));
+        *MODULE_SNAPSHOT.lock().unwrap() = Some(ModuleSnapshot { module_name: module_name.clone(), base, regions });
         Ok(format!("Full snapshot {} pages ({:.1}MB) — {} @ 0x{:X}", count, total as f64 / 1_048_576.0, module_name, base))
     })
 }
@@ -577,7 +610,7 @@ async fn snapshot_by_module_name(pid: u32, module_name: String) -> Result<String
         let regions = engine::snapshot_executable_pages(pid, base, size)?;
         let total: usize = regions.iter().map(|(_, d)| d.len()).sum();
         let count = regions.len();
-        *MODULE_SNAPSHOT.lock().unwrap() = Some((module_name.clone(), base, regions));
+        *MODULE_SNAPSHOT.lock().unwrap() = Some(ModuleSnapshot { module_name: module_name.clone(), base, regions });
         Ok(format!("Snapshotted {} bytes across {} exec regions — {} @ 0x{:X}", total, count, module_name, base))
     })
 }
@@ -593,7 +626,7 @@ fn list_exec_regions(pid: u32) -> Result<Vec<String>, String> {
 #[tauri::command]
 fn patch_bytes(pid: u32, address: String, bytes: Vec<u8>) -> Result<(), String> {
     let addr = parse_addr(&address)?;
-    engine::patch_memory(pid, addr as usize, &bytes)
+    engine::write_memory_rw(pid, addr as usize, &bytes)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -624,6 +657,7 @@ pub fn run() {
             resolve_mono_field,
             resolve_mono_chain,
             resolve_ue5_prop,
+            resolve_ue5_prop_custom,
             write_byte,
             read_byte,
             toggle_bit_flag,

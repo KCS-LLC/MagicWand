@@ -129,6 +129,7 @@ pub fn scan_epic() -> Vec<DetectedGame> {
     games
 }
 
+#[cfg(debug_assertions)]
 pub fn scan_local() -> Vec<DetectedGame> {
     let mut games = Vec::new();
     
@@ -176,6 +177,7 @@ pub fn scan_all() -> Vec<DetectedGame> {
     let mut seen_paths = std::collections::HashSet::new();
 
     let mut raw_games = Vec::new();
+    #[cfg(debug_assertions)]
     raw_games.extend(scan_local());
     raw_games.extend(scan_steam());
     raw_games.extend(scan_epic());

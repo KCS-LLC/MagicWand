@@ -1,6 +1,8 @@
 use crate::engine::{read_memory, aob_scan_range, read_ptr, read_u32};
+use serde::Deserialize;
 use std::collections::HashMap;
 
+#[derive(Deserialize)]
 pub struct Ue5Offsets {
     pub fuobjectitem_size: usize,
     pub fuobjectitem_object: usize,

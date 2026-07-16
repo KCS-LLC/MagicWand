@@ -18,6 +18,22 @@
       "offsets": []
     },
     {
+      "id": "bl4-one-hit-kill",
+      "name": "One Hit Kill",
+      "type": "ue5_prop",
+      "valueType": "float",
+      "module": "Borderlands4.exe",
+      "ue5GObjectsOffset": 292969008,
+      "ue5GNamesOffset": 292027856,
+      "ue5ClassName": "OakPlayerController",
+      "ue5PropertyOffset": 976,
+      "ue5Offsets": [19416],
+      "ue5MirrorOffset": 4,
+      "offsets": [],
+      "onValue": 19999,
+      "offValue": 1
+    },
+    {
       "id": "bl4-health",
       "name": "Current Health",
       "type": "scan",

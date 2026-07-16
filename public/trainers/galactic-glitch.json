@@ -1,0 +1,85 @@
+{
+  "name": "Galactic Glitch",
+  "executable": "GalacticGlitch.exe",
+  "cheats": [
+    {
+      "id": "gg-orbs-set",
+      "name": "Set Orbs to 9999",
+      "type": "action",
+      "valueType": "int",
+      "module": "GameAssembly.dll",
+      "base": "0x294EF70",
+      "offsets": ["0x9E0", "0x0", "0xD0", "0x79C"],
+      "onValue": 9999
+    },
+    {
+      "id": "gg-credits-set",
+      "name": "Set Credits to 9999",
+      "type": "action",
+      "valueType": "int",
+      "module": "GameAssembly.dll",
+      "base": "0x294EF70",
+      "offsets": ["0x58", "0xF0", "0x6F8"],
+      "onValue": 9999
+    },
+    {
+      "id": "gg-godmode",
+      "name": "Invincibility",
+      "type": "code_cave",
+      "module": "GameAssembly.dll",
+      "offsets": [],
+      "onValue": 0,
+      "caveSites": [
+        {
+          "patchSignature": "F3 0F 5C 46 10 44 38 BB 89 01 00 00 74 18",
+          "patchLen": 5,
+          "cavePayload": [
+            128, 187, 48, 1, 0, 0, 1,
+            116, 5,
+            243, 15, 92, 70, 16
+          ]
+        },
+        {
+          "patchSignature": "F3 0F 5C 46 10 44 0F 2F C8",
+          "patchLen": 5,
+          "cavePayload": [
+            128, 187, 48, 1, 0, 0, 1,
+            116, 5,
+            243, 15, 92, 70, 16
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gg-glitch-charge",
+      "name": "Glitch Charge Never Decreases",
+      "type": "code_cave",
+      "module": "GameAssembly.dll",
+      "offsets": [],
+      "onValue": 0,
+      "patchSignature": "89 7B 30 48 85 C9 74 0E 4C 8B 05 17 65 1F 02 8B D7 E8 E8 8D 61 00",
+      "patchLen": 6,
+      "cavePayload": [
+        59, 123, 48,
+        125, 3,
+        139, 123, 48,
+        137, 123, 48,
+        72, 133, 201
+      ]
+    },
+    {
+      "id": "gg-glitch-token",
+      "name": "Glitch Token Never Decreases",
+      "type": "code_patch",
+      "module": "GameAssembly.dll",
+      "offsets": [],
+      "onValue": 0,
+      "patches": [
+        { "signature": "29 78 2C EB 47", "bytes": [144, 144, 144] }
+      ],
+      "offPatches": [
+        { "signature": "29 78 2C EB 47", "bytes": [41, 120, 44] }
+      ]
+    }
+  ]
+}

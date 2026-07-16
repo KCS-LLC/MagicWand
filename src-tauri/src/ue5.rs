@@ -139,7 +139,7 @@ pub fn list_classes_by_keyword(
             );
             if obj_ptr == 0 || obj_ptr > 0x0000_7FFF_FFFF_FFFF { continue; }
             let class_ptr = match read_ptr(pid, obj_ptr + off.uobject_class) {
-                Some(p) if p != 0 => p,
+                Some(p) if p != 0 && p <= 0x0000_7FFF_FFFF_FFFF => p,
                 _ => continue,
             };
             if seen.contains_key(&class_ptr) { continue; }
@@ -218,7 +218,7 @@ pub fn find_object_by_class(
             }
 
             let class_ptr = match read_ptr(pid, obj_ptr + off.uobject_class) {
-                Some(p) if p != 0 => p,
+                Some(p) if p != 0 && p <= 0x0000_7FFF_FFFF_FFFF => p,
                 _ => continue,
             };
 

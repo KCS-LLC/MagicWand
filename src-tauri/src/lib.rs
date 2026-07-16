@@ -61,6 +61,37 @@ async fn aob_scan(pid: u32, module_name: String, pattern: String) -> Result<Stri
     blocking!({ engine::aob_scan(pid, &module_name, &pattern).map(|r| r.to_string()) })
 }
 
+/// Like aob_scan, but returns every match in the module instead of just the first — the
+/// only way to actually confirm a signature is unique before trusting it for a patch.
+/// aob_scan alone can silently return a coincidental earlier match while a "verified"
+/// later one sits unused, exactly the false-positive failure mode that bit the Glitch
+/// Charge cheat (an 8-byte signature matched two near-identical compiled setter bodies).
+#[tauri::command]
+async fn aob_scan_all(pid: u32, module_name: String, pattern: String) -> Result<Vec<String>, String> {
+    blocking!({
+        let (base, size) = engine::get_module_info(pid, &module_name)
+            .ok_or_else(|| format!("Could not find module {}", module_name))?;
+        Ok(engine::aob_scan_all_range(pid, base, size, &pattern)
+            .into_iter()
+            .map(|a| format!("0x{:X}", a))
+            .collect())
+    })
+}
+
+/// Like aob_scan_range, but returns every match in the range instead of just the first.
+/// Useful for hunting a generic sub-pattern (e.g. a bare SUBSS opcode) within a single
+/// already-located function's byte span, where a whole-module scan would be too noisy.
+#[tauri::command]
+async fn aob_scan_all_range(pid: u32, base: String, size: usize, pattern: String) -> Result<Vec<String>, String> {
+    blocking!({
+        let base_addr = parse_addr(&base)? as usize;
+        Ok(engine::aob_scan_all_range(pid, base_addr, size, &pattern)
+            .into_iter()
+            .map(|a| format!("0x{:X}", a))
+            .collect())
+    })
+}
+
 fn parse_addr(s: &str) -> Result<u64, String> {
     let clean = s.trim().to_lowercase();
     if clean.starts_with("0x") {
@@ -397,8 +428,14 @@ async fn scan_rarity_candidates(pid: u32, module_name: String) -> Result<Vec<Str
 
 /// Install a code cave for the legendary gate cheat.
 /// `cheat_id`     — key into CAVE_STATE; lets multiple code_cave cheats coexist
-/// `site_rva`     — RVA of the 5-byte instruction to replace with JMP
+/// `site_rva`     — RVA of the instruction(s) to replace with JMP
 /// `cave_payload` — cave bytes WITHOUT the final JMP back (engine appends E9 rel32)
+/// `site_len`     — total bytes to overwrite at the site (>=5). The JMP (5 bytes) is
+///                  written first; any remaining bytes up to site_len are NOP-padded, and
+///                  execution resumes at site_addr + site_len. Needed when the instruction(s)
+///                  being neutralized are longer than a single 5-byte JMP (e.g. a multi-byte
+///                  cmp/subss pair) — overwriting only 5 bytes would leave dangling original
+///                  bytes that the CPU would misdecode on return.
 #[tauri::command]
 async fn enable_code_cave(
     pid: u32,
@@ -406,22 +443,25 @@ async fn enable_code_cave(
     module_name: String,
     site_rva: String,
     cave_payload: Vec<u8>,
+    site_len: usize,
 ) -> Result<(), String> {
     blocking!({
         let (base, _) = require_module(pid, &module_name)?;
         let rva = parse_addr(&site_rva)? as usize;
         let site_addr = base + rva;
+        let site_len = site_len.max(5);
 
         // Snapshot the bytes about to be overwritten by the JMP, so disable can restore them
         // without relying on a caller-supplied (and potentially stale) copy.
-        let original_bytes = engine::read_memory(pid, site_addr, 5)?;
+        let original_bytes = engine::read_memory(pid, site_addr, site_len)?;
 
         // Allocate RWX memory near the patch site
         let total = cave_payload.len() + 5; // payload + E9 rel32
         let cave_addr = engine::alloc_executable_near(pid, site_addr, total)?;
 
-        // Compute return address: execution resumes at site_addr + 5 (after the JMP we write)
-        let return_addr = site_addr + 5;
+        // Compute return address: execution resumes at site_addr + site_len (after the JMP
+        // and any NOP padding we write)
+        let return_addr = site_addr + site_len;
         let jmp_back_from = cave_addr + cave_payload.len() + 1; // E9 is 1 byte, rel32 follows
         let rel32_back = (return_addr as i64 - (jmp_back_from as i64 + 4)) as i32;
 
@@ -433,15 +473,16 @@ async fn enable_code_cave(
         // Write cave
         engine::write_memory_raw(pid, cave_addr, &cave_bytes)?;
 
-        // Write JMP from patch site to cave (E9 rel32, 5 bytes)
+        // Write JMP from patch site to cave (E9 rel32, 5 bytes), NOP-padding out to site_len
         let jmp_from = site_addr + 1; // E9 is 1 byte, rel32 follows
         let rel32_fwd = (cave_addr as i64 - (jmp_from as i64 + 4)) as i32;
         let mut jmp_bytes = vec![0xE9u8];
         jmp_bytes.extend_from_slice(&rel32_fwd.to_le_bytes());
+        jmp_bytes.resize(site_len, 0x90);
         engine::write_memory_rw(pid, site_addr, &jmp_bytes)?;
 
         CAVE_STATE.lock().unwrap().insert(cheat_id, CaveEntry { cave_addr, site_addr, original_bytes });
-        crate::mwlog!("[enable_code_cave] cave=0x{:X} site=0x{:X} (RVA 0x{})", cave_addr, site_addr, site_rva);
+        crate::mwlog!("[enable_code_cave] cave=0x{:X} site=0x{:X} len={} (RVA 0x{})", cave_addr, site_addr, site_len, site_rva);
         Ok(())
     })
 }
@@ -584,6 +625,57 @@ async fn read_module_strings(pid: u32, module_name: String, min_len: usize) -> R
     blocking!({ engine::read_module_strings(pid, &module_name, min_len) })
 }
 
+/// Dumps arbitrary diagnostic text (e.g. the results pane) to disk so it can be handed
+/// off without going through clipboard/chat copy-paste for large outputs.
+#[tauri::command]
+async fn write_text_file(out_path: String, contents: String) -> Result<String, String> {
+    blocking!({
+        std::fs::write(&out_path, contents.as_bytes()).map_err(|e| e.to_string())?;
+        Ok(format!("Wrote {} bytes to {}", contents.len(), out_path))
+    })
+}
+
+fn dumps_dir() -> Result<std::path::PathBuf, String> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .ok_or("Could not resolve project root")?
+        .join("dumps");
+    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    Ok(root)
+}
+
+fn dump_timestamp() -> Result<u64, String> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())
+        .map(|d| d.as_secs())
+}
+
+/// Saves diagnostic text into `<project_root>/dumps/`, one file per call (timestamp-named,
+/// never overwritten), so a series of DevPanel results can be captured and diffed by hand
+/// without round-tripping through the clipboard.
+#[tauri::command]
+async fn save_dev_dump(contents: String) -> Result<String, String> {
+    blocking!({
+        let path = dumps_dir()?.join(format!("dump_{}.txt", dump_timestamp()?));
+        std::fs::write(&path, contents.as_bytes()).map_err(|e| e.to_string())?;
+        Ok(format!("Wrote {} bytes to {}", contents.len(), path.display()))
+    })
+}
+
+/// Dumps a raw address+size range (not a registered module — for manually-mapped code
+/// invisible to EnumProcessModules) into `<project_root>/dumps/` as a binary file.
+#[tauri::command]
+async fn dump_range_to_file(pid: u32, address: String, size: usize) -> Result<String, String> {
+    blocking!({
+        let addr = parse_addr(&address)? as usize;
+        let path = dumps_dir()?.join(format!("dump_{}.bin", dump_timestamp()?));
+        let path_str = path.to_string_lossy().to_string();
+        let bytes = engine::dump_range_to_file(pid, addr, size, &path_str)?;
+        Ok(format!("Wrote {} bytes to {}", bytes, path_str))
+    })
+}
+
 #[tauri::command]
 fn list_modules(pid: u32) -> Result<Vec<String>, String> {
     let mut mods = engine::list_all_modules(pid)?;
@@ -672,10 +764,15 @@ pub fn run() {
             read_snapshot_region,
             read_raw_bytes,
             aob_scan_range,
+            aob_scan_all_range,
+            aob_scan_all,
             list_modules,
             list_exec_regions,
             dump_module_to_file,
             read_module_strings,
+            write_text_file,
+            save_dev_dump,
+            dump_range_to_file,
             find_wemod_drop_cave,
             find_outside_jmps,
             scan_rarity_candidates,

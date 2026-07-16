@@ -33,14 +33,22 @@ export interface Cheat {
   ue5ClassName?: string;
   ue5PropertyOffset?: number;
   ue5Offsets?: number[];
+  ue5MirrorOffset?: number;
   bitIndex?: number;
   offValue?: number;
-  // code_patch-specific fields:
-  patches?: { rva: string; bytes: number[] }[];
-  offPatches?: { rva: string; bytes: number[] }[];
-  // code_cave-specific fields:
+  // code_patch-specific fields: each patch resolves via a fixed rva OR a live AOB signature
+  patches?: { rva?: string; signature?: string; bytes: number[] }[];
+  offPatches?: { rva?: string; signature?: string; bytes: number[] }[];
+  // code_cave-specific fields: patchSite (fixed RVA) OR patchSignature (live AOB), one required
   patchSite?: string;
+  patchSignature?: string;
+  patchLen?: number;
   cavePayload?: number[];
+  // code_cave multi-site: when a single toggle needs to patch more than one location
+  // (e.g. the same instruction appears at multiple call sites within one function),
+  // list them here instead of using the singular fields above. Each site gets its own
+  // enable_code_cave/disable_code_cave call, keyed by `${cheat.id}#${index}`.
+  caveSites?: { patchSite?: string; patchSignature?: string; patchLen?: number; cavePayload: number[] }[];
   active?: boolean;
   currentValue?: string | number;
 }
@@ -60,6 +68,25 @@ function memCmd(op: 'read' | 'write', valueType: 'int' | 'float' | 'double' | 'b
 
 function toHexAddr(addr: string | number): string {
   return '0x' + BigInt(addr).toString(16);
+}
+
+/// Writes `value` at `hexAddr`, and — if `mirrorOffset` is set — writes it again at
+/// `hexAddr + mirrorOffset`. Covers UE5 attribute-style fields that store a cached
+/// "Value" alongside a "BaseValue" a few bytes later, where a periodic recalculation
+/// can stomp a write to only one of the two (e.g. FGbxAttributeFloat.Value/BaseValue).
+async function writeWithMirror(
+  pid: number | null,
+  hexAddr: string,
+  valueType: Cheat['valueType'],
+  value: number,
+  mirrorOffset?: number,
+) {
+  const cmd = valueType === 'byte' ? 'write_byte' : memCmd('write', valueType);
+  await invoke(cmd, { pid, address: hexAddr, value });
+  if (mirrorOffset) {
+    const mirrorAddr = toHexAddr('0x' + (BigInt(hexAddr) + BigInt(mirrorOffset)).toString(16));
+    await invoke(cmd, { pid, address: mirrorAddr, value });
+  }
 }
 
 export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: string, msg: string) => void) {
@@ -87,22 +114,67 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
   const addressCache = useRef<Record<string, string>>({});
   const cheatFailedAt = useRef<Record<string, number>>({});
   const codePatchIntervals = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+  // Resolved absolute addresses for each cheat's `patches` entries, keyed by cheat.id.
+  // Populated once per enable — signature-based patches are re-applied every 50ms and
+  // must not be re-scanned that often (an AOB scan walks the whole module).
+  const patchAddrCache = useRef<Record<string, bigint[]>>({});
+
+  const resolvePatchAddresses = async (cheat: Cheat, pid: number): Promise<bigint[]> => {
+    const cached = patchAddrCache.current[cheat.id];
+    if (cached) return cached;
+    const baseStr = await invoke<string>('get_module_base', { pid, moduleName: cheat.module });
+    const base = BigInt(baseStr);
+    const addrs: bigint[] = [];
+    for (const patch of cheat.patches ?? []) {
+      if (patch.signature) {
+        const found = await invoke<string>('aob_scan', { pid, moduleName: cheat.module, pattern: patch.signature });
+        addrs.push(BigInt(found));
+      } else {
+        addrs.push(base + BigInt(patch.rva ?? '0'));
+      }
+    }
+    patchAddrCache.current[cheat.id] = addrs;
+    return addrs;
+  };
 
   const applyCodePatches = async (cheat: Cheat, pid: number) => {
     if (!cheat.patches) return;
-    const baseStr = await invoke<string>('get_module_base', { pid, moduleName: cheat.module });
-    const base = BigInt(baseStr);
-    for (const patch of cheat.patches) {
-      const addr = `0x${(base + BigInt(patch.rva)).toString(16).toUpperCase()}`;
-      await invoke('patch_bytes', { pid, address: addr, bytes: patch.bytes });
+    const addrs = await resolvePatchAddresses(cheat, pid);
+    for (let i = 0; i < cheat.patches.length; i++) {
+      const addr = `0x${addrs[i].toString(16).toUpperCase()}`;
+      await invoke('patch_bytes', { pid, address: addr, bytes: cheat.patches[i].bytes });
     }
   };
 
-  const startCodePatch = (cheat: Cheat, pid: number) => {
-    if (!cheat.patches || cheat.patches.length === 0) return;
-    applyCodePatches(cheat, pid).catch(() => {});
-    const id = setInterval(() => applyCodePatches(cheat, pid).catch(() => {}), 50);
+  // Returns true if the patch resolved and applied at least once. Callers must not
+  // flip the cheat's `active` UI state to true until this resolves — a failed AOB scan
+  // (stale signature) must not silently retry forever: resolvePatchAddresses only caches
+  // on success, so an uncaught failure here would otherwise re-trigger a full, uncached
+  // module scan every single tick, indefinitely.
+  const startCodePatch = async (cheat: Cheat, pid: number, onError?: (id: string, msg: string) => void): Promise<boolean> => {
+    if (!cheat.patches || cheat.patches.length === 0) return false;
+    try {
+      await applyCodePatches(cheat, pid);
+    } catch (err) {
+      onError?.(cheat.id, err instanceof Error ? err.message : String(err));
+      return false;
+    }
+    const id = setInterval(() => {
+      applyCodePatches(cheat, pid).catch((err) => {
+        // Started failing mid-session (process/module gone, or a transient scan failure
+        // that will only repeat) — stop retrying instead of re-scanning every 50ms forever.
+        const intervalId = codePatchIntervals.current.get(cheat.id);
+        if (intervalId !== undefined) { clearInterval(intervalId); codePatchIntervals.current.delete(cheat.id); }
+        delete patchAddrCache.current[cheat.id];
+        onError?.(cheat.id, err instanceof Error ? err.message : String(err));
+        setActiveGame(prev => {
+          if (!prev) return null;
+          return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: false } : c) };
+        });
+      });
+    }, 50);
     codePatchIntervals.current.set(cheat.id, id);
+    return true;
   };
 
   const stopCodePatch = (cheat: Cheat, pid: number) => {
@@ -110,13 +182,15 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
     if (id !== undefined) { clearInterval(id); codePatchIntervals.current.delete(cheat.id); }
     if (cheat.offPatches && cheat.offPatches.length > 0 && pid) {
       (async () => {
-        const baseStr = await invoke<string>('get_module_base', { pid, moduleName: cheat.module });
-        const base = BigInt(baseStr);
-        for (const patch of cheat.offPatches!) {
-          const addr = `0x${(base + BigInt(patch.rva)).toString(16).toUpperCase()}`;
-          await invoke('patch_bytes', { pid, address: addr, bytes: patch.bytes });
+        // offPatches restore the same sites as patches, in the same order — reuse the cache.
+        const addrs = await resolvePatchAddresses(cheat, pid);
+        for (let i = 0; i < cheat.offPatches!.length; i++) {
+          const addr = `0x${addrs[i].toString(16).toUpperCase()}`;
+          await invoke('patch_bytes', { pid, address: addr, bytes: cheat.offPatches![i].bytes });
         }
-      })().catch(() => {});
+      })().catch(() => {}).finally(() => { delete patchAddrCache.current[cheat.id]; });
+    } else {
+      delete patchAddrCache.current[cheat.id];
     }
   };
 
@@ -124,6 +198,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
     if (!pid) {
       codePatchIntervals.current.forEach(id => clearInterval(id));
       codePatchIntervals.current.clear();
+      patchAddrCache.current = {};
       // note: offPatches not restored on disconnect — game is closing anyway
     }
   }, [pid]);
@@ -227,11 +302,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
                     const srcAddr = toHexAddr('0x' + (BigInt(addr) - BigInt(cheat.monoFinalOffset ?? 0) + BigInt(cheat.onValueFromOffset)).toString(16));
                     writeValue = await invoke<number>(memCmd('read', cheat.valueType), { pid: pidRef.current, address: srcAddr });
                   }
-                  if (cheat.valueType === 'byte') {
-                    await invoke('write_byte', { pid: pidRef.current, address: hexAddr, value: writeValue });
-                  } else {
-                    await invoke(memCmd('write', cheat.valueType), { pid: pidRef.current, address: hexAddr, value: writeValue });
-                  }
+                  await writeWithMirror(pidRef.current, hexAddr, cheat.valueType, writeValue, cheat.ue5MirrorOffset);
                 }
                 const val = cheat.valueType === 'byte'
                   ? await invoke<number>('read_byte', { pid: pidRef.current, address: hexAddr })
@@ -264,6 +335,7 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
   const selectGame = useCallback(async (game: GameTrainer | null) => {
     addressCache.current = {};
     cheatFailedAt.current = {};
+    patchAddrCache.current = {};
     codePatchIntervals.current.forEach(id => clearInterval(id));
     codePatchIntervals.current.clear();
     setActiveGame(game);
@@ -289,40 +361,72 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
 
     if (cheat.type === 'code_patch') {
       const willBeActive = !cheat.active;
-      setActiveGame(prev => {
-        if (!prev) return null;
-        return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: willBeActive } : c) };
-      });
-      if (willBeActive) startCodePatch(cheat, pid);
-      else stopCodePatch(cheat, pid);
+      if (willBeActive) {
+        // Don't flip to "active" until the patch has actually resolved and applied once.
+        const ok = await startCodePatch(cheat, pid, onError);
+        if (ok) {
+          setActiveGame(prev => {
+            if (!prev) return null;
+            return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: true } : c) };
+          });
+        }
+      } else {
+        stopCodePatch(cheat, pid);
+        setActiveGame(prev => {
+          if (!prev) return null;
+          return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: false } : c) };
+        });
+      }
       return;
     }
 
     if (cheat.type === 'code_cave') {
-      if (!cheat.patchSite || !cheat.cavePayload) return;
+      const sites = cheat.caveSites ?? (cheat.cavePayload
+        ? [{ patchSite: cheat.patchSite, patchSignature: cheat.patchSignature, patchLen: cheat.patchLen, cavePayload: cheat.cavePayload }]
+        : []);
+      if (sites.length === 0) return;
       const willBeActive = !cheat.active;
       setActiveGame(prev => {
         if (!prev) return null;
         return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: willBeActive } : c) };
       });
-      try {
-        if (willBeActive) {
-          await invoke('enable_code_cave', {
-            pid,
-            cheatId: cheat.id,
-            moduleName: cheat.module,
-            siteRva: cheat.patchSite,
-            cavePayload: cheat.cavePayload,
+      if (willBeActive) {
+        const enabledIdx: number[] = [];
+        try {
+          for (let i = 0; i < sites.length; i++) {
+            const site = sites[i];
+            let siteRva = site.patchSite;
+            if (!siteRva && site.patchSignature) {
+              const baseStr = await invoke<string>('get_module_base', { pid, moduleName: cheat.module });
+              const found = await invoke<string>('aob_scan', { pid, moduleName: cheat.module, pattern: site.patchSignature });
+              siteRva = '0x' + (BigInt(found) - BigInt(baseStr)).toString(16);
+            }
+            await invoke('enable_code_cave', {
+              pid,
+              cheatId: `${cheat.id}#${i}`,
+              moduleName: cheat.module,
+              siteRva,
+              cavePayload: site.cavePayload,
+              siteLen: site.patchLen ?? 5,
+            });
+            enabledIdx.push(i);
+          }
+        } catch (err) {
+          // Partial failure — undo whichever sites already installed so we don't leave
+          // some of them patched while the UI shows the cheat as off.
+          for (const i of enabledIdx) {
+            await invoke('disable_code_cave', { pid, cheatId: `${cheat.id}#${i}` }).catch(() => {});
+          }
+          onError?.(cheat.id, err instanceof Error ? err.message : String(err));
+          setActiveGame(prev => {
+            if (!prev) return null;
+            return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: false } : c) };
           });
-        } else {
-          await invoke('disable_code_cave', { pid, cheatId: cheat.id });
         }
-      } catch (err) {
-        onError?.(cheat.id, err instanceof Error ? err.message : String(err));
-        setActiveGame(prev => {
-          if (!prev) return null;
-          return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: !willBeActive } : c) };
-        });
+      } else {
+        for (let i = 0; i < sites.length; i++) {
+          await invoke('disable_code_cave', { pid, cheatId: `${cheat.id}#${i}` }).catch(() => {});
+        }
       }
       return;
     }
@@ -356,18 +460,10 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
         const bitSet = willBeActive ? (cheat.onValue !== 0) : ((cheat.offValue ?? 1) !== 0);
         await invoke('toggle_bit_flag', { pid, address: hexAddr, bit: cheat.bitIndex, value: bitSet });
       } else if (cheat.type === 'ue5_prop' && !willBeActive && cheat.offValue !== undefined) {
-        if (cheat.valueType === 'byte') {
-          await invoke('write_byte', { pid, address: hexAddr, value: cheat.offValue });
-        } else {
-          await invoke(memCmd('write', cheat.valueType), { pid, address: hexAddr, value: cheat.offValue });
-        }
+        await writeWithMirror(pid, hexAddr, cheat.valueType, cheat.offValue, cheat.ue5MirrorOffset);
       } else if (willBeActive) {
         const wv = resolveWriteValue(cheat, customValueStr);
-        if (cheat.valueType === 'byte') {
-          await invoke('write_byte', { pid, address: hexAddr, value: wv });
-        } else {
-          await invoke(memCmd('write', cheat.valueType), { pid, address: hexAddr, value: wv });
-        }
+        await writeWithMirror(pid, hexAddr, cheat.valueType, wv, cheat.ue5MirrorOffset);
       }
     } catch (err) {
       setActiveGame(prev => {

@@ -15,6 +15,9 @@ dist-ssr
 # Local cheat table research files — never commit
 CT-Copy/
 
+# DevPanel diagnostic dumps — scratch output, never commit
+dumps/
+
 # Local tools — cloned externally, not part of this repo
 tools/
 

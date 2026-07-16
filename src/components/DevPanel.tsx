@@ -16,6 +16,9 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
   const [classKeyword, setClassKeyword] = useState<string>('');
   const [snapTarget, setSnapTarget] = useState<string>('');
   const [resultsFilter, setResultsFilter] = useState<string>('');
+  const [aobModule, setAobModule] = useState<string>('');
+  const [aobPattern, setAobPattern] = useState<string>('');
+  const [copyStatus, setCopyStatus] = useState<string>('');
   const dropRateInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const [dropRateActive, setDropRateActive] = useState(false);
 
@@ -81,6 +84,53 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
             <div className="cheat-list" style={{ marginTop: '1rem', borderTop: '1px solid #333', paddingTop: '1rem' }}>
               <div className="cheat-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
                 <span className="cheat-name" style={{ fontSize: '0.75rem', color: '#888' }}>PATCH DIFF TOOL</span>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <input
+                    className="value-input"
+                    type="text"
+                    placeholder={activeGame?.executable ?? 'module.dll'}
+                    value={aobModule}
+                    onChange={e => setAobModule(e.target.value)}
+                    style={{ fontFamily: 'monospace', fontSize: '0.75rem', width: '9rem' }}
+                  />
+                  <input
+                    className="value-input"
+                    type="text"
+                    placeholder="AA BB ?? CC  (space-separated hex, ?? = wildcard byte)"
+                    value={aobPattern}
+                    onChange={e => setAobPattern(e.target.value)}
+                    style={{ fontFamily: 'monospace', fontSize: '0.75rem', flex: 1 }}
+                  />
+                  <button className="fire-button" disabled={!pid || !aobPattern.trim()} onClick={async () => {
+                    if (!pid || !aobPattern.trim()) return;
+                    const modName = aobModule.trim() || activeGame?.executable || '';
+                    try {
+                      setDiffStatus(`Scanning ${modName} for pattern...`);
+                      setDiffResults([]);
+                      const baseStr = await invoke<string>('get_module_base', { pid, moduleName: modName });
+                      const base = BigInt(baseStr);
+                      const found = await invoke<string>('aob_scan', { pid, moduleName: modName, pattern: aobPattern.trim() });
+                      const rva = BigInt(found) - base;
+                      const hex = await invoke<string>('read_raw_bytes', { pid, address: found, count: 32 });
+                      setDiffResults([`abs: ${found}`, `RVA: 0x${rva.toString(16).toUpperCase()}`, `bytes (32 from match): ${hex}`]);
+                      setDiffStatus('Pattern found (first match — may not be unique)');
+                    } catch (e) { setDiffStatus(`AOB Scan: ${e}`); }
+                  }}>AOB Scan</button>
+                  <button className="fire-button" disabled={!pid || !aobPattern.trim()} onClick={async () => {
+                    if (!pid || !aobPattern.trim()) return;
+                    const modName = aobModule.trim() || activeGame?.executable || '';
+                    try {
+                      setDiffStatus(`Scanning ALL of ${modName} for pattern (checks uniqueness)...`);
+                      setDiffResults([]);
+                      const baseStr = await invoke<string>('get_module_base', { pid, moduleName: modName });
+                      const base = BigInt(baseStr);
+                      const found = await invoke<string[]>('aob_scan_all', { pid, moduleName: modName, pattern: aobPattern.trim() });
+                      const lines = found.map(addr => `${addr}  RVA 0x${(BigInt(addr) - base).toString(16).toUpperCase()}`);
+                      setDiffResults(lines.length > 0 ? lines : ['No matches']);
+                      setDiffStatus(`${found.length} match(es) in whole module — 1 means unique, >1 means NOT safe to trust yet`);
+                    } catch (e) { setDiffStatus(`AOB Scan All: ${e}`); }
+                  }}>AOB Scan All (Uniqueness Check)</button>
+                </div>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                   <input
                     className="value-input"
@@ -212,12 +262,13 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                   }}>Read Strings</button>
                   <button className="fire-button" disabled={!pid} onClick={async () => {
                     if (!pid) return;
+                    const modName = snapTarget.trim() || 'Trainer_49051_20e30ce373.dll';
                     try {
-                      setDiffStatus('Reading CE script from Trainer DLL (full script)...');
-                      const baseStr = await invoke<string>('get_module_base', { pid, moduleName: 'Trainer_49051_20e30ce373.dll' });
+                      setDiffStatus(`Reading CE script from ${modName} (full script)...`);
+                      const baseStr = await invoke<string>('get_module_base', { pid, moduleName: modName });
                       const base = BigInt(baseStr);
-                      const scriptStart = 0x8B81An;
-                      const scriptLen = 0x4000; // 16KB — captures all versions of all cheat scripts
+                      const scriptStart = 0x82000n;
+                      const scriptLen = 0x8000; // 32KB — narrowed to the confirmed CE-script text block (avoids UTF-16 resource data outside it)
                       const addr = `0x${(base + scriptStart).toString(16).toUpperCase()}`;
                       const hexStr = await invoke<string>('read_raw_bytes', { pid, address: addr, count: scriptLen });
                       const bytes = hexStr.split(' ').map(h => parseInt(h, 16));
@@ -375,6 +426,46 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                   <button className="fire-button" disabled={!pid || !dumpAddr} onClick={async () => {
                     if (!pid || !dumpAddr) return;
                     try {
+                      setDiffStatus(`Reading raw bytes at ${dumpAddr}...`);
+                      const hex = await invoke<string>('read_raw_bytes', { pid, address: dumpAddr, count: 512 });
+                      const lines = [`Raw bytes @ ${dumpAddr}:`];
+                      const modName = (aobModule.trim() || activeGame?.executable || '').trim();
+                      if (modName) {
+                        try {
+                          const baseStr = await invoke<string>('get_module_base', { pid, moduleName: modName });
+                          const rva = BigInt(dumpAddr) - BigInt(baseStr);
+                          lines.push(`RVA relative to ${modName}: 0x${rva.toString(16).toUpperCase()}`);
+                        } catch { /* module not found under that name, skip RVA */ }
+                      }
+                      const bytes = hex.split(' ');
+                      for (let i = 0; i < bytes.length; i += 16) {
+                        lines.push(bytes.slice(i, i + 16).join(' '));
+                      }
+                      setDiffResults(lines);
+                      setDiffStatus('Read complete');
+                    } catch (e) { setDiffStatus(`Read failed: ${e}`); }
+                  }}>Read Bytes</button>
+                  <button className="fire-button" disabled={!pid || !dumpAddr || !aobPattern.trim()} onClick={async () => {
+                    if (!pid || !dumpAddr || !aobPattern.trim()) return;
+                    try {
+                      setDiffStatus(`Scanning 16KB from ${dumpAddr} for pattern (uses AOB Scan row's pattern field)...`);
+                      setDiffResults([]);
+                      const modName = (aobModule.trim() || activeGame?.executable || '').trim();
+                      let base = 0n;
+                      try { base = BigInt(await invoke<string>('get_module_base', { pid, moduleName: modName })); } catch { /* RVA optional */ }
+                      const found = await invoke<string[]>('aob_scan_all_range', { pid, base: dumpAddr, size: 0x4000, pattern: aobPattern.trim() });
+                      if (found.length === 0) { setDiffStatus('No matches in 16KB range'); return; }
+                      const lines = found.map(addr => {
+                        const rvaPart = base > 0n ? `  RVA 0x${(BigInt(addr) - base).toString(16).toUpperCase()}` : '';
+                        return `${addr}${rvaPart}`;
+                      });
+                      setDiffResults(lines);
+                      setDiffStatus(`${found.length} match(es) within 16KB of ${dumpAddr}`);
+                    } catch (e) { setDiffStatus(`Scan failed: ${e}`); }
+                  }}>Scan 16KB From Addr</button>
+                  <button className="fire-button" disabled={!pid || !dumpAddr} onClick={async () => {
+                    if (!pid || !dumpAddr) return;
+                    try {
                       const before = await invoke<number>('read_float', { pid, address: dumpAddr });
                       await invoke<void>('patch_bytes', { pid, address: dumpAddr, bytes: [0x00, 0x00, 0x80, 0x3F] });
                       const after = await invoke<number>('read_float', { pid, address: dumpAddr });
@@ -382,6 +473,15 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                       setDiffStatus(`Patched ${dumpAddr} → 1.0`);
                     } catch (e) { setDiffStatus(String(e)); }
                   }}>Write 1.0</button>
+                  <button className="fire-button" disabled={!pid || !dumpAddr} onClick={async () => {
+                    if (!pid || !dumpAddr) return;
+                    try {
+                      setDiffStatus(`Dumping 256KB from ${dumpAddr} to file...`);
+                      const msg = await invoke<string>('dump_range_to_file', { pid, address: dumpAddr, size: 0x40000 });
+                      setDiffResults([msg]);
+                      setDiffStatus(msg);
+                    } catch (e) { setDiffStatus(`Dump failed: ${e}`); }
+                  }}>Dump Range to File (256KB)</button>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                   <button className="fire-button" disabled={!pid} onClick={async () => {
@@ -899,31 +999,45 @@ export function DevPanel({ pid, activeGame }: DevPanelProps) {
                   }}>Follow Row Ptrs</button>
                 </div>
                 {diffStatus && <span style={{ fontSize: '0.7rem', color: '#aaa' }}>{diffStatus}</span>}
-                {diffResults.length > 0 && (
-                  <>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', width: '100%' }}>
-                      <input
-                        className="value-input"
-                        type="text"
-                        placeholder="filter results..."
-                        value={resultsFilter}
-                        onChange={e => setResultsFilter(e.target.value)}
-                        style={{ fontFamily: 'monospace', fontSize: '0.75rem', flex: 1 }}
-                      />
-                      <span style={{ fontSize: '0.65rem', color: '#666', whiteSpace: 'nowrap' }}>
-                        {resultsFilter
-                          ? `${diffResults.filter(l => l.toLowerCase().includes(resultsFilter.toLowerCase())).length} / ${diffResults.length}`
-                          : `${diffResults.length} lines`}
-                      </span>
-                    </div>
-                    <pre style={{ fontSize: '0.65rem', color: '#0f0', background: '#111', padding: '0.5rem', borderRadius: '4px', width: '100%', overflowX: 'auto', margin: 0, maxHeight: '400px', overflowY: 'auto' }}>
-                      {(resultsFilter
-                        ? diffResults.filter(l => l.toLowerCase().includes(resultsFilter.toLowerCase()))
-                        : diffResults
-                      ).join('\n')}
-                    </pre>
-                  </>
-                )}
+                {diffResults.length > 0 && (() => {
+                  const visible = resultsFilter
+                    ? diffResults.filter(l => l.toLowerCase().includes(resultsFilter.toLowerCase()))
+                    : diffResults;
+                  return (
+                    <>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', width: '100%' }}>
+                        <input
+                          className="value-input"
+                          type="text"
+                          placeholder="filter results..."
+                          value={resultsFilter}
+                          onChange={e => setResultsFilter(e.target.value)}
+                          style={{ fontFamily: 'monospace', fontSize: '0.75rem', flex: 1 }}
+                        />
+                        <span style={{ fontSize: '0.65rem', color: '#666', whiteSpace: 'nowrap' }}>
+                          {resultsFilter ? `${visible.length} / ${diffResults.length}` : `${diffResults.length} lines`}
+                        </span>
+                        <button className="fire-button" onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(visible.join('\n'));
+                            setCopyStatus('Copied!');
+                          } catch (e) { setCopyStatus(`Copy failed: ${e}`); }
+                          setTimeout(() => setCopyStatus(''), 2000);
+                        }}>{copyStatus || 'Select All & Copy'}</button>
+                        <button className="fire-button" onClick={async () => {
+                          try {
+                            const msg = await invoke<string>('save_dev_dump', { contents: visible.join('\n') });
+                            setCopyStatus(msg);
+                          } catch (e) { setCopyStatus(`Save failed: ${e}`); }
+                          setTimeout(() => setCopyStatus(''), 4000);
+                        }}>Save to File</button>
+                      </div>
+                      <pre style={{ fontSize: '0.65rem', color: '#0f0', background: '#111', padding: '0.5rem', borderRadius: '4px', width: '100%', overflowX: 'auto', margin: 0, maxHeight: '400px', overflowY: 'auto' }}>
+                        {visible.join('\n')}
+                      </pre>
+                    </>
+                  );
+                })()}
               </div>
             </div>
   );

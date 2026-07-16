@@ -357,6 +357,13 @@ fn walk_committed_regions(
 pub fn dump_module_to_file(pid: u32, module_name: &str, out_path: &str) -> Result<usize, String> {
     let (base, size) = get_module_info(pid, module_name)
         .ok_or_else(|| format!("Module '{}' not found", module_name))?;
+    dump_range_to_file(pid, base, size, out_path)
+}
+
+/// Like dump_module_to_file, but for an arbitrary address+size instead of a registered
+/// module — needed for manually-mapped code that never appears in EnumProcessModules
+/// (e.g. an injected engine hidden from module enumeration on purpose).
+pub fn dump_range_to_file(pid: u32, base: usize, size: usize, out_path: &str) -> Result<usize, String> {
     // Fill gaps with zeros; only committed pages get real bytes.
     let mut buf = vec![0u8; size];
     for (region_base, data) in walk_committed_regions(pid, base, size, false, usize::MAX) {

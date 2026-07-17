@@ -309,8 +309,14 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
                   : await invoke<number>(memCmd('read', cheat.valueType), { pid: pidRef.current, address: hexAddr });
                 return { id: cheat.id, val };
               } catch (e) {
-                const msg = e instanceof Error ? e.message : String(e);
-                onCheatError?.(cheat.id, msg);
+                // Only surface this as a user-facing error when the cheat is actually
+                // toggled on — this loop also runs for inactive cheats just to display
+                // currentValue, and address resolution can legitimately fail there
+                // (e.g. player has no valid Pawn yet) before the user has done anything.
+                if (cheat.active) {
+                  const msg = e instanceof Error ? e.message : String(e);
+                  onCheatError?.(cheat.id, msg);
+                }
                 cheatFailedAt.current[cheat.id] = Date.now();
                 delete addressCache.current[cheat.id];
                 return { id: cheat.id, val: '???' };

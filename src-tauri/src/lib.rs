@@ -436,6 +436,24 @@ async fn scan_rarity_candidates(pid: u32, module_name: String) -> Result<Vec<Str
 ///                  being neutralized are longer than a single 5-byte JMP (e.g. a multi-byte
 ///                  cmp/subss pair) — overwriting only 5 bytes would leave dangling original
 ///                  bytes that the CPU would misdecode on return.
+/// Describes a RIP-relative memory operand within the bytes a far-jump cave swallows
+/// beyond what `cave_payload` itself replicates (see `enable_code_cave`'s `far_jump`
+/// branch). The referenced data gets copied live into the cave and the displacement
+/// rewritten to point at that local copy — copying the original disp32 as-is would
+/// resolve relative to wherever the cave lands, which is wrong once the cave isn't
+/// necessarily near the original site.
+///
+/// Only supports the instruction being the *last* one in the swallowed region (its
+/// disp32 field must end exactly at site_len) — that's the case this exists for
+/// (BL4's legendary drop-rate DIVSS); a general multi-instruction relocator would need
+/// a real disassembler and isn't worth building for one call site.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RipFixup {
+    rel_disp_offset: usize, // offset of the 4-byte disp32 field, relative to site_addr
+    data_len: usize,        // size of the data the operand references
+}
+
 #[tauri::command]
 async fn enable_code_cave(
     pid: u32,
@@ -444,11 +462,74 @@ async fn enable_code_cave(
     site_rva: String,
     cave_payload: Vec<u8>,
     site_len: usize,
+    far_jump: bool,
+    core_len: usize,
+    rip_fixup: Option<RipFixup>,
 ) -> Result<(), String> {
     blocking!({
         let (base, _) = require_module(pid, &module_name)?;
         let rva = parse_addr(&site_rva)? as usize;
         let site_addr = base + rva;
+
+        if far_jump {
+            // `jmp qword ptr [rip+0]` (6 bytes) + an embedded 8-byte absolute pointer
+            // right after it (14 bytes total) — reaches anywhere in the process, so the
+            // cave can go in freely-available memory instead of needing a free 64KB slot
+            // within 2GB of the site. Trades the compact rel32 JMP for site_len needing
+            // to land on a real instruction boundary >= 14 bytes out (verify by reading
+            // the live bytes before setting this on a cheat — a wrong cut corrupts the
+            // instruction stream instead of just failing to find memory).
+            const FAR_JMP_LEN: usize = 14;
+            let site_len = site_len.max(FAR_JMP_LEN);
+            let original_bytes = engine::read_memory(pid, site_addr, site_len)?;
+
+            // Bytes beyond what cave_payload's own replicated instruction covers (core_len)
+            // still need to execute — carried into the cave verbatim, except for any
+            // RIP-relative operand, which gets repointed at an embedded copy (see RipFixup).
+            let core_len = core_len.min(site_len);
+            let mut extra_bytes = original_bytes[core_len..].to_vec();
+
+            let mut embedded_data: Vec<u8> = Vec::new();
+            if let Some(fixup) = rip_fixup {
+                let rel_off = fixup.rel_disp_offset.checked_sub(core_len)
+                    .ok_or("rip_fixup.rel_disp_offset before core_len")?;
+                let disp_bytes = extra_bytes.get(rel_off..rel_off + 4)
+                    .ok_or("rip_fixup.rel_disp_offset out of range")?;
+                let orig_disp = i32::from_le_bytes(disp_bytes.try_into().unwrap());
+                // This instruction's own RIP (address of the next instruction) is
+                // site_addr + site_len, since the fixup only supports it being last.
+                let orig_target = (site_addr + site_len) as i64 + orig_disp as i64;
+                embedded_data = engine::read_memory(pid, orig_target as usize, fixup.data_len)?;
+
+                // New displacement: embedded_data is placed right after the far
+                // jump-back block, which is always exactly FAR_JMP_LEN bytes past where
+                // this instruction's RIP now points (the far-jump opcode immediately
+                // follows extra_bytes in the cave — see layout below).
+                let new_disp = FAR_JMP_LEN as i32;
+                extra_bytes[rel_off..rel_off + 4].copy_from_slice(&new_disp.to_le_bytes());
+            }
+
+            let total = cave_payload.len() + extra_bytes.len() + FAR_JMP_LEN + embedded_data.len();
+            let cave_addr = engine::alloc_executable_anywhere(pid, total)?;
+            let return_addr = site_addr + site_len;
+
+            let mut cave_bytes = cave_payload;
+            cave_bytes.extend_from_slice(&extra_bytes);
+            cave_bytes.extend_from_slice(&[0xFF, 0x25, 0, 0, 0, 0]);
+            cave_bytes.extend_from_slice(&(return_addr as u64).to_le_bytes());
+            cave_bytes.extend_from_slice(&embedded_data);
+            engine::write_memory_raw(pid, cave_addr, &cave_bytes)?;
+
+            let mut jmp_bytes = vec![0xFFu8, 0x25, 0, 0, 0, 0];
+            jmp_bytes.extend_from_slice(&(cave_addr as u64).to_le_bytes());
+            jmp_bytes.resize(site_len, 0x90);
+            engine::write_memory_rw(pid, site_addr, &jmp_bytes)?;
+
+            CAVE_STATE.lock().unwrap().insert(cheat_id, CaveEntry { cave_addr, site_addr, original_bytes });
+            crate::mwlog!("[enable_code_cave/far] cave=0x{:X} site=0x{:X} len={} (RVA 0x{})", cave_addr, site_addr, site_len, site_rva);
+            return Ok(());
+        }
+
         let site_len = site_len.max(5);
 
         // Snapshot the bytes about to be overwritten by the JMP, so disable can restore them

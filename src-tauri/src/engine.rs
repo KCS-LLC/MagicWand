@@ -291,6 +291,22 @@ pub fn alloc_executable_near(pid: u32, near_addr: usize, size: usize) -> Result<
     Err(format!("No free executable memory within 2 GB of 0x{:X}", near_addr))
 }
 
+/// Allocate RWX executable memory anywhere in the process, with no proximity
+/// constraint. Pairs with a far (absolute, RIP-relative-indirect) jump instead of a
+/// rel32 JMP — use when the target site can't guarantee a free 64KB slot within 2GB
+/// (e.g. a fixed-address patch site deep in a large module, where whatever else the
+/// game has mapped nearby varies launch to launch).
+pub fn alloc_executable_anywhere(pid: u32, size: usize) -> Result<usize, String> {
+    let handle = ProcessHandle::open(pid)?;
+    let ptr = unsafe {
+        VirtualAllocEx(handle.0, None, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)
+    };
+    if ptr.is_null() {
+        return Err("Failed to allocate executable memory".to_string());
+    }
+    Ok(ptr as usize)
+}
+
 pub fn free_alloc(pid: u32, addr: usize) -> Result<(), String> {
     let handle = ProcessHandle::open(pid)?;
     unsafe {

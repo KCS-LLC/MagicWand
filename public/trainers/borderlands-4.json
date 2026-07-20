@@ -190,6 +190,10 @@
       "offsets": [],
       "onValue": 0,
       "patchSite": "0x96C77FA",
+      "patchLen": 17,
+      "farJump": true,
+      "coreLen": 5,
+      "ripFixup": { "relDispOffset": 13, "dataLen": 4 },
       "cavePayload": [
         80, 139, 7, 61, 0, 0, 180, 66,
         88, 114, 5,

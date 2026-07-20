@@ -44,11 +44,32 @@ export interface Cheat {
   patchSignature?: string;
   patchLen?: number;
   cavePayload?: number[];
+  // farJump: use an unconstrained cave allocation + absolute indirect jumps (both
+  // directions) instead of the default rel32 E9 jump. The default requires a free
+  // 64KB-aligned slot within 2GB of patchSite, which can be scarce/absent depending on
+  // what else the game has mapped nearby at that moment (varies launch to launch).
+  // Requires patchLen long enough for a 14-byte `jmp qword ptr [rip+0]` + embedded
+  // pointer to land on a real instruction boundary — verify against a live disassembly
+  // before setting this, a wrong cut corrupts the instruction stream.
+  farJump?: boolean;
+  // coreLen: length of the instruction cavePayload's own logic replicates (e.g. 5 for
+  // the original AND EAX being neutralized). Only meaningful with farJump — bytes from
+  // coreLen up to patchLen are extra instructions the far jump's longer overwrite
+  // swallows, which get carried into the cave verbatim (fixed up per ripFixup if set).
+  coreLen?: number;
+  // ripFixup: describes a RIP-relative operand within the swallowed [coreLen, patchLen)
+  // region — its data gets embedded live into the cave and the displacement repointed
+  // at that copy, since the original disp32 would resolve relative to wherever the far
+  // jump's cave lands, not the original site. Must be the last instruction swallowed.
+  ripFixup?: { relDispOffset: number; dataLen: number };
   // code_cave multi-site: when a single toggle needs to patch more than one location
   // (e.g. the same instruction appears at multiple call sites within one function),
   // list them here instead of using the singular fields above. Each site gets its own
   // enable_code_cave/disable_code_cave call, keyed by `${cheat.id}#${index}`.
-  caveSites?: { patchSite?: string; patchSignature?: string; patchLen?: number; cavePayload: number[] }[];
+  caveSites?: {
+    patchSite?: string; patchSignature?: string; patchLen?: number; cavePayload: number[];
+    farJump?: boolean; coreLen?: number; ripFixup?: { relDispOffset: number; dataLen: number };
+  }[];
   active?: boolean;
   currentValue?: string | number;
 }
@@ -388,7 +409,10 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
 
     if (cheat.type === 'code_cave') {
       const sites = cheat.caveSites ?? (cheat.cavePayload
-        ? [{ patchSite: cheat.patchSite, patchSignature: cheat.patchSignature, patchLen: cheat.patchLen, cavePayload: cheat.cavePayload }]
+        ? [{
+            patchSite: cheat.patchSite, patchSignature: cheat.patchSignature, patchLen: cheat.patchLen,
+            cavePayload: cheat.cavePayload, farJump: cheat.farJump, coreLen: cheat.coreLen, ripFixup: cheat.ripFixup,
+          }]
         : []);
       if (sites.length === 0) return;
       const willBeActive = !cheat.active;
@@ -414,6 +438,11 @@ export function useTrainer(pollInterval: number = 2000, onCheatError?: (id: stri
               siteRva,
               cavePayload: site.cavePayload,
               siteLen: site.patchLen ?? 5,
+              farJump: site.farJump ?? false,
+              coreLen: site.coreLen ?? 5,
+              ripFixup: site.ripFixup
+                ? { relDispOffset: site.ripFixup.relDispOffset, dataLen: site.ripFixup.dataLen }
+                : null,
             });
             enabledIdx.push(i);
           }

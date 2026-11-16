@@ -1,12 +1,15 @@
 # Magic Wand — Agent Instructions
 
 ## Project Overview
+
 Magic Wand is a Tauri v2 (Rust + React/TypeScript) desktop game trainer for Windows. It attaches to running game processes and performs memory read/write/patch operations via a polished UI.
 
 ## Hard Rules
 
 ### NO KEYBOARD HOTKEYS OR GLOBAL HOTKEYS
+
 **Do not implement hotkey support of any kind.** This includes:
+
 - Global hotkeys (`global-hotkey` crate or any equivalent)
 - In-app keyboard shortcuts tied to cheat actions
 - Any keybinding system for toggling cheats
@@ -16,9 +19,13 @@ Magic Wand is a Tauri v2 (Rust + React/TypeScript) desktop game trainer for Wind
 Cheats are activated **only** through the Magic Wand UI (toggle switches and Fire buttons).
 
 ## Docs Folder
+
 `/docs` contains implementation briefs for planned features. Each brief is self-contained with file paths, code, and acceptance criteria. Work from the briefs; do not invent features not described there.
 
+`game-*.md` files are per-game reference notes (verified offsets, cheat types, how to re-find things after a game update); `docs/game-tlbu-and-outward.md` documents the Mono `monoPath`/`mono_store_nop` and IL2CPP `il2cpp*` cheat types.
+
 ## Tech Stack
+
 - **Frontend:** React + TypeScript (Vite)
 - **Backend:** Rust (Tauri v2)
 - **Memory ops:** Windows API via `windows` crate (`ReadProcessMemory`, `WriteProcessMemory`, `VirtualProtectEx`)

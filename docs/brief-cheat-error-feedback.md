@@ -1,6 +1,7 @@
 # Brief: Cheat Error Feedback
 
 ## Status
+
 Unimplemented.
 
 ## Problem
@@ -42,15 +43,24 @@ setCheatErrors({});
 `applyCheat` currently catches errors and only logs them. Add an optional `onError` callback parameter:
 
 ```typescript
-const applyCheat = async (cheat: Cheat, customValueStr?: string, onError?: (id: string, msg: string) => void) => {
+const applyCheat = async (
+  cheat: Cheat,
+  customValueStr?: string,
+  onError?: (id: string, msg: string) => void,
+) => {
   if (!pid || !activeGame) return;
 
   if (cheat.type === 'action' || cheat.type === 'mono' || cheat.type === 'mono_chain') {
     try {
       const addr = await resolveCheatAddress(cheat);
-      const hexAddr = "0x" + BigInt(addr).toString(16);
+      const hexAddr = '0x' + BigInt(addr).toString(16);
       const writeValue = resolveWriteValue(cheat, customValueStr);
-      const cmd = cheat.valueType === 'double' ? 'write_double' : cheat.valueType === 'float' ? 'write_float' : 'write_int';
+      const cmd =
+        cheat.valueType === 'double'
+          ? 'write_double'
+          : cheat.valueType === 'float'
+            ? 'write_float'
+            : 'write_int';
       await invoke(cmd, { pid, address: hexAddr, value: writeValue });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -64,7 +74,9 @@ const applyCheat = async (cheat: Cheat, customValueStr?: string, onError?: (id: 
     // ... existing toggle logic
   } catch (err) {
     // revert active state (existing behaviour)
-    setActiveGame(prev => { /* ... */ });
+    setActiveGame((prev) => {
+      /* ... */
+    });
     const msg = err instanceof Error ? err.message : String(err);
     onError?.(cheat.id, msg);
   }
@@ -103,14 +115,15 @@ catch (e) {
 ```
 
 In `App.tsx`:
+
 ```tsx
-const { activeGame, trainers, selectGame, applyCheat, pid } = useTrainer(
-  pollInterval,
-  (id, msg) => setCheatErrors(prev => ({ ...prev, [id]: msg }))
+const { activeGame, trainers, selectGame, applyCheat, pid } = useTrainer(pollInterval, (id, msg) =>
+  setCheatErrors((prev) => ({ ...prev, [id]: msg })),
 );
 ```
 
 And pass to `applyCheat` calls:
+
 ```tsx
 onClick={() => applyCheat(cheat, customValues[cheat.id], (id, msg) => setCheatErrors(prev => ({ ...prev, [id]: msg })))}
 ```
@@ -120,15 +133,13 @@ onClick={() => applyCheat(cheat, customValues[cheat.id], (id, msg) => setCheatEr
 Below the `.cheat-info` div in each cheat row, render the error if present:
 
 ```tsx
-<div className="cheat-info">
-  <div className="cheat-name-row">
-    <span className="cheat-name">{cheat.name}</span>
+<div className='cheat-info'>
+  <div className='cheat-name-row'>
+    <span className='cheat-name'>{cheat.name}</span>
     <span className={`cheat-type-badge cheat-type-${cheat.type}`}>{cheat.type}</span>
   </div>
   {/* existing live-value span */}
-  {cheatErrors[cheat.id] && (
-    <span className="cheat-error">{cheatErrors[cheat.id]}</span>
-  )}
+  {cheatErrors[cheat.id] && <span className='cheat-error'>{cheatErrors[cheat.id]}</span>}
 </div>
 ```
 

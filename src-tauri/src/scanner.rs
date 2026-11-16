@@ -37,6 +37,38 @@ fn find_steam_path() -> Option<PathBuf> {
     None
 }
 
+/// Reads every `appmanifest_*.acf` in a Steam library's `steamapps` dir and returns a
+/// map of `installdir` (the actual common/ folder name) -> `name` (the real Steam
+/// display name, e.g. "The Outer Worlds 2" for install folder "TheOuterWorlds2"). The
+/// install folder name and display name often differ (spaces stripped, abbreviated,
+/// etc.), and relying on the raw folder name as a trainer's display/match name silently
+/// breaks the game-card click for any such game — the crude VDF parsing here matches
+/// libraryfolders.vdf's existing style in this file.
+fn read_steam_manifest_names(steamapps_dir: &Path) -> std::collections::HashMap<String, String> {
+    let mut names = std::collections::HashMap::new();
+    let Ok(entries) = fs::read_dir(steamapps_dir) else { return names; };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("acf") { continue; }
+        let Ok(content) = fs::read_to_string(&path) else { continue; };
+        let mut installdir: Option<String> = None;
+        let mut name: Option<String> = None;
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split('"').collect();
+            if parts.len() < 4 { continue; }
+            match parts[1] {
+                "installdir" => installdir = Some(parts[3].to_string()),
+                "name" => name = Some(parts[3].to_string()),
+                _ => {}
+            }
+        }
+        if let (Some(dir), Some(n)) = (installdir, name) {
+            names.insert(dir, n);
+        }
+    }
+    names
+}
+
 pub fn scan_steam() -> Vec<DetectedGame> {
     let mut games = Vec::new();
     let steam_path = match find_steam_path() {
@@ -60,19 +92,31 @@ pub fn scan_steam() -> Vec<DetectedGame> {
         }
 
         for path in library_paths {
+            let manifest_names = read_steam_manifest_names(&path.join("steamapps"));
             let common_apps = path.join("steamapps\\common");
             if let Ok(entries) = fs::read_dir(common_apps) {
                 for entry in entries.flatten() {
                     if entry.path().is_dir() {
-                        let name = entry.file_name().to_string_lossy().to_string();
+                        let folder_name = entry.file_name().to_string_lossy().to_string();
+                        let name = manifest_names.get(&folder_name).cloned().unwrap_or_else(|| folder_name.clone());
                         let folder_path = entry.path();
                         
-                        // Heuristic: Check for various likely .exe names
+                        // Heuristic: Check for various likely .exe names. Matched against
+                        // folder_name (the actual on-disk installdir), not the resolved
+                        // display `name` — those two can differ (see read_steam_manifest_names)
+                        // and the exe naming convention follows the folder, not the store
+                        // listing's display name.
                         let possible_exes = [
+                            folder_path.join(format!("{}.exe", folder_name)),
+                            folder_path.join(format!("{}.exe", folder_name.replace(" ", ""))),
+                            // Some games' exe follows the store display name instead of the
+                            // folder (e.g. folder "Land Beneath Us" -> "The Land Beneath Us.exe").
                             folder_path.join(format!("{}.exe", name)),
-                            folder_path.join(format!("{}.exe", name.replace(" ", ""))),
+                            // ...or the display name without spaces (folder "Needle in a
+                            // Haystack" -> "Find The Needle" -> "FindTheNeedle.exe").
+                            folder_path.join(format!("{}.exe", name.replace(' ', ""))),
                             folder_path.join("SkyrimSE.exe"), // Explicitly check for Skyrim
-                            folder_path.join("bin").join(format!("{}.exe", name)),
+                            folder_path.join("bin").join(format!("{}.exe", folder_name)),
                         ];
                         
                         for exe in possible_exes {

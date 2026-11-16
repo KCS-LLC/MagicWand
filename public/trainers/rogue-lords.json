@@ -1,0 +1,192 @@
+{
+  "name": "Rogue Lords",
+  "executable": "Rogue Lords.exe",
+  "cheats": [
+    {
+      "id": "rl-souls",
+      "name": "Set Souls",
+      "type": "action",
+      "valueType": "int",
+      "module": "mono-2.0-bdwgc.dll",
+      "monoAssembly": "MainAssembly",
+      "monoNamespace": "DarkTale.Macro.Difficulty",
+      "monoClass": "DifficultyManager",
+      "monoStaticField": "<Instance>k__BackingField",
+      "monoPath": [
+        {
+          "namespace": "DarkTale.Macro.Difficulty",
+          "className": "DifficultyManager",
+          "field": "_devil"
+        },
+        {
+          "namespace": "DarkTale",
+          "className": "Devil",
+          "field": "_devilSouls"
+        },
+        {
+          "namespace": "Value",
+          "className": "IntValue",
+          "field": "_value"
+        }
+      ],
+      "offsets": [],
+      "onValue": 999
+    },
+    {
+      "id": "rl-essence",
+      "name": "Set Diabolic Essence",
+      "type": "action",
+      "valueType": "float",
+      "module": "mono-2.0-bdwgc.dll",
+      "monoAssembly": "MainAssembly",
+      "monoNamespace": "DarkTale.Macro.Difficulty",
+      "monoClass": "DifficultyManager",
+      "monoStaticField": "<Instance>k__BackingField",
+      "monoPath": [
+        {
+          "namespace": "DarkTale.Macro.Difficulty",
+          "className": "DifficultyManager",
+          "field": "_devil"
+        },
+        {
+          "namespace": "DarkTale",
+          "className": "Devil",
+          "field": "_stats"
+        },
+        {
+          "namespace": "DarkTale",
+          "className": "DevilStatCollection",
+          "field": "_stats"
+        },
+        {
+          "namespace": "StatSystem",
+          "className": "Stat",
+          "field": "_permanentModifierSum",
+          "dictKey": 0
+        }
+      ],
+      "offsets": [],
+      "writeBias": -50,
+      "onValue": 110
+    },
+    {
+      "id": "rl-max-essence",
+      "name": "Set Max Diabolic Essence",
+      "type": "action",
+      "valueType": "float",
+      "module": "mono-2.0-bdwgc.dll",
+      "monoAssembly": "MainAssembly",
+      "monoNamespace": "DarkTale.Macro.Difficulty",
+      "monoClass": "DifficultyManager",
+      "monoStaticField": "<Instance>k__BackingField",
+      "monoPath": [
+        {
+          "namespace": "DarkTale.Macro.Difficulty",
+          "className": "DifficultyManager",
+          "field": "_devil"
+        },
+        {
+          "namespace": "DarkTale",
+          "className": "Devil",
+          "field": "_stats"
+        },
+        {
+          "namespace": "DarkTale",
+          "className": "DevilStatCollection",
+          "field": "_stats"
+        },
+        {
+          "namespace": "StatSystem",
+          "className": "Stat",
+          "field": "_permanentModifierSum",
+          "dictKey": 1
+        }
+      ],
+      "offsets": [],
+      "writeBias": -50,
+      "onValue": 200
+    },
+    {
+      "id": "rl-no-essence-loss",
+      "name": "No Essence Loss",
+      "type": "mono_method_ret",
+      "module": "mono-2.0-bdwgc.dll",
+      "offsets": [],
+      "monoMethod": {
+        "assembly": "MainAssembly",
+        "namespace": "DarkTale",
+        "className": "DevilStatCollection",
+        "method": "ApplyDamage"
+      },
+      "ilSignature": "02 16 28 b7 05 00 0a 02 28 55 07 00 06 0a 06 03 59 16",
+      "ilPatches": [
+        {
+          "offset": 0,
+          "expect": "02 16",
+          "replace": "16 2a"
+        }
+      ]
+    },
+    {
+      "id": "rl-no-essence-loss-devilmode",
+      "name": "No Essence Loss (Devil Mode / Story Challenges)",
+      "type": "mono_method_ret",
+      "module": "mono-2.0-bdwgc.dll",
+      "offsets": [],
+      "monoMethod": {
+        "assembly": "MainAssembly",
+        "namespace": "DarkTale",
+        "className": "DevilStatCollection",
+        "method": "ApplyDevilModeHealthMod"
+      },
+      "ilSignature": "02 16 28 b7 05 00 0a 02 28 55 07 00 06 03 58 16",
+      "ilPatches": [
+        {
+          "offset": 0,
+          "expect": "02",
+          "replace": "2a"
+        }
+      ]
+    },
+    {
+      "id": "rl-no-soul-loss",
+      "name": "No Soul Loss",
+      "type": "mono_method_ret",
+      "module": "mono-2.0-bdwgc.dll",
+      "offsets": [],
+      "monoMethod": {
+        "assembly": "MainAssembly",
+        "namespace": "DarkTale",
+        "className": "Devil",
+        "method": "RemoveSouls"
+      },
+      "ilSignature": "02 7b 89 05 00 04 03 6f b2 05 00 0a 2a",
+      "ilPatches": [
+        {
+          "offset": 0,
+          "expect": "02",
+          "replace": "2a"
+        }
+      ]
+    },
+    {
+      "id": "rl-unlimited-ap",
+      "name": "Unlimited Action Points",
+      "type": "mono_call_nop",
+      "module": "mono-2.0-bdwgc.dll",
+      "offsets": [],
+      "monoMethod": {
+        "assembly": "MainAssembly",
+        "namespace": "",
+        "className": "<ValidateAction>d__20",
+        "method": "MoveNext"
+      },
+      "monoCallee": {
+        "assembly": "ToolsAssembly",
+        "namespace": "Value",
+        "className": "IntValue",
+        "method": "Substract"
+      }
+    }
+  ]
+}

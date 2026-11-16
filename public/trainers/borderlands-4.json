@@ -7,8 +7,8 @@
       "name": "Invincibility",
       "type": "ue5_prop",
       "module": "Borderlands4.exe",
-      "ue5GObjectsOffset": 292969008,
-      "ue5GNamesOffset": 292027856,
+      "ue5GObjectsOffset": 210311752,
+      "ue5GNamesOffset": 209370512,
       "ue5ClassName": "OakPlayerController",
       "ue5PropertyOffset": 976,
       "ue5Offsets": [98],
@@ -23,8 +23,8 @@
       "type": "ue5_prop",
       "valueType": "float",
       "module": "Borderlands4.exe",
-      "ue5GObjectsOffset": 292969008,
-      "ue5GNamesOffset": 292027856,
+      "ue5GObjectsOffset": 210311752,
+      "ue5GNamesOffset": 209370512,
       "ue5ClassName": "OakPlayerController",
       "ue5PropertyOffset": 976,
       "ue5Offsets": [19416],
@@ -175,12 +175,8 @@
       "module": "Borderlands4.exe",
       "offsets": [],
       "onValue": 0,
-      "patches": [
-        { "rva": "0x96CA774", "bytes": [15, 87, 192, 144, 144, 144, 144] }
-      ],
-      "offPatches": [
-        { "rva": "0x96CA774", "bytes": [15, 87, 192, 243, 15, 42, 197] }
-      ]
+      "patches": [{ "rva": "0x96CA774", "bytes": [15, 87, 192, 144, 144, 144, 144] }],
+      "offPatches": [{ "rva": "0x96CA774", "bytes": [15, 87, 192, 243, 15, 42, 197] }]
     },
     {
       "id": "bl4-legendary-drop-rate",
@@ -189,16 +185,13 @@
       "module": "Borderlands4.exe",
       "offsets": [],
       "onValue": 0,
-      "patchSite": "0x96C77FA",
+      "patchSite": "0x3D9FE8E",
       "patchLen": 17,
       "farJump": true,
       "coreLen": 5,
       "ripFixup": { "relDispOffset": 13, "dataLen": 4 },
       "cavePayload": [
-        80, 139, 7, 61, 0, 0, 180, 66,
-        88, 114, 5,
-        184, 254, 127, 0, 0,
-        37, 255, 127, 0, 0
+        80, 139, 7, 61, 0, 0, 180, 66, 88, 114, 5, 184, 254, 127, 0, 0, 37, 255, 127, 0, 0
       ]
     }
   ]

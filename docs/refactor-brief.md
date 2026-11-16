@@ -208,8 +208,8 @@ const bl4Prop = (className: string) =>
     moduleName: 'Borderlands4.exe',
     gobjectsAob: '',
     gnamesAob: '',
-    gobjectsOffset: 0x11765A30,
-    gnamesOffset: 0x1167FDD0,
+    gobjectsOffset: 0x11765a30,
+    gnamesOffset: 0x1167fdd0,
     className,
     propertyOffset: 0,
     extraOffsets: null,
@@ -232,7 +232,7 @@ const ptr = (hi << 32n) | lo;
 
 ```ts
 export function parseLePtr64(hexBytes: string[]): bigint {
-  const b = hexBytes.map(h => parseInt(h, 16));
+  const b = hexBytes.map((h) => parseInt(h, 16));
   const lo = BigInt(b[0]) | (BigInt(b[1]) << 8n) | (BigInt(b[2]) << 16n) | (BigInt(b[3]) << 24n);
   const hi = BigInt(b[4]) | (BigInt(b[5]) << 8n) | (BigInt(b[6]) << 16n) | (BigInt(b[7]) << 24n);
   return (hi << 32n) | lo;
@@ -283,6 +283,7 @@ static MODULE_SNAPSHOT: Mutex<Option<ModuleSnapshot>> = Mutex::new(None);
 `Ue5Offsets::ue5_default()` is the only call site. The struct is `pub` with public fields but nothing outside the module varies them.
 
 **Fix (option A):** Make it a private constant and remove the struct:
+
 ```rust
 const UE5: Ue5Offsets = Ue5Offsets { fuobjectitem_size: 24, ... };
 ```
@@ -298,6 +299,7 @@ const UE5: Ue5Offsets = Ue5Offsets { fuobjectitem_size: 24, ... };
 `write_memory` calls `WriteProcessMemory` directly (fails on protected pages). `patch_memory` calls `VirtualProtectEx` first. The names don't communicate this. Callers in `lib.rs` use both interchangeably; some write to code sections using `write_memory` and silently fail.
 
 **Fix:** Rename to make intent explicit:
+
 - `write_memory` → `write_memory_raw` (data sections, caller guarantees writeability)
 - `patch_memory` → `write_memory_rw` (code sections, forces RW then restores protection)
 
@@ -329,23 +331,23 @@ The field is declared as `string` in the `Cheat` interface and parsed with `pars
 
 ## Summary Table
 
-| # | Item | File(s) | Effort | Impact |
-|---|---|---|---|---|
-| 1a | Multi-cave `CAVE_STATE` HashMap | lib.rs | Small | Correctness fix |
-| 1b | Store original bytes in `CaveEntry` | lib.rs, useTrainer.ts | Small | Correctness fix + simpler API |
-| 2a | Extract `walk_committed_regions` | engine.rs | Medium | ~200 lines removed |
-| 2b | Delete duplicate snapshot command | lib.rs | Trivial | ~13 lines |
-| 2c | Extract `TrainerDashboard` + `DevPanel` | App.tsx | Medium | ~950 lines moved out of App |
-| 3a | `require_module` helper | lib.rs | Trivial | 13 repetitions collapsed |
-| 3b | Move `read_ptr`/`read_u32` to engine.rs | mono.rs, ue5.rs | Trivial | ~20 lines, no more duplication |
-| 3c | `blocking!` macro | lib.rs | Trivial | Noise reduction across 13 commands |
-| 3d | `bl4Prop()` helper | App.tsx / DevPanel.tsx | Trivial | 12 copy-pastes → 1 |
-| 3e | `parseLePtr64` utility | App.tsx / utils/memory.ts | Trivial | 7 copy-pastes → 1 |
-| 4a | Gate `scan_local` on debug | scanner.rs | Trivial | Test code out of release |
-| 4b | Name the `MODULE_SNAPSHOT` tuple | lib.rs | Trivial | Readability |
-| 4c | Collapse or promote `Ue5Offsets` | ue5.rs | Small | Remove false configurability |
-| 4d | Rename `write_memory`/`patch_memory` | engine.rs, lib.rs | Small | Prevent silent write failures |
-| 4e | Fix polling filter | useTrainer.ts | Trivial | Wasted reads per tick |
-| 4f | `ue5GObjectsOffset` as `number` | useTrainer.ts, JSON files | Trivial | Type mismatch at boundary |
+| #   | Item                                    | File(s)                   | Effort  | Impact                             |
+| --- | --------------------------------------- | ------------------------- | ------- | ---------------------------------- |
+| 1a  | Multi-cave `CAVE_STATE` HashMap         | lib.rs                    | Small   | Correctness fix                    |
+| 1b  | Store original bytes in `CaveEntry`     | lib.rs, useTrainer.ts     | Small   | Correctness fix + simpler API      |
+| 2a  | Extract `walk_committed_regions`        | engine.rs                 | Medium  | ~200 lines removed                 |
+| 2b  | Delete duplicate snapshot command       | lib.rs                    | Trivial | ~13 lines                          |
+| 2c  | Extract `TrainerDashboard` + `DevPanel` | App.tsx                   | Medium  | ~950 lines moved out of App        |
+| 3a  | `require_module` helper                 | lib.rs                    | Trivial | 13 repetitions collapsed           |
+| 3b  | Move `read_ptr`/`read_u32` to engine.rs | mono.rs, ue5.rs           | Trivial | ~20 lines, no more duplication     |
+| 3c  | `blocking!` macro                       | lib.rs                    | Trivial | Noise reduction across 13 commands |
+| 3d  | `bl4Prop()` helper                      | App.tsx / DevPanel.tsx    | Trivial | 12 copy-pastes → 1                 |
+| 3e  | `parseLePtr64` utility                  | App.tsx / utils/memory.ts | Trivial | 7 copy-pastes → 1                  |
+| 4a  | Gate `scan_local` on debug              | scanner.rs                | Trivial | Test code out of release           |
+| 4b  | Name the `MODULE_SNAPSHOT` tuple        | lib.rs                    | Trivial | Readability                        |
+| 4c  | Collapse or promote `Ue5Offsets`        | ue5.rs                    | Small   | Remove false configurability       |
+| 4d  | Rename `write_memory`/`patch_memory`    | engine.rs, lib.rs         | Small   | Prevent silent write failures      |
+| 4e  | Fix polling filter                      | useTrainer.ts             | Trivial | Wasted reads per tick              |
+| 4f  | `ue5GObjectsOffset` as `number`         | useTrainer.ts, JSON files | Trivial | Type mismatch at boundary          |
 
 Items 1a and 1b are the only ones that affect runtime correctness. Everything else is cleanup with no user-visible behavior change.

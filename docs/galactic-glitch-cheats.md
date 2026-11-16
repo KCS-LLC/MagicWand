@@ -27,7 +27,7 @@ before re-enabling.
 **Also learned the hard way**: both `code_cave` and `code_patch` write directly into the
 target game's own process memory (a JMP+cave, or raw NOP'd bytes, inside
 `GalacticGlitch.exe`'s address space). Once installed, that stays there for as long as the
-*game* process stays alive — closing Magic Wand does **not** undo it, for either type.
+_game_ process stays alive — closing Magic Wand does **not** undo it, for either type.
 `code_patch`'s restoration (writing the original bytes back from `offPatches`) only
 happens inside `stopCodePatch`, which only runs when a cheat is explicitly toggled off; if
 Magic Wand closes while a `code_patch` cheat is still active, its 50ms re-apply interval
@@ -37,7 +37,7 @@ cleanly remove the JMP) only lives in memory while Magic Wand is running, so clo
 loses that record even though the JMP itself is still installed in the game.
 
 Practical effect either way: Magic Wand's UI resets to "off" on every relaunch (fresh
-app state), but that's disconnected from what's *actually* sitting in the game's memory —
+app state), but that's disconnected from what's _actually_ sitting in the game's memory —
 a cheat can show as off while its patch (or orphaned NOPs) is still live from a previous
 session. This showed up concretely when re-verifying Glitch Token's signature: an "AOB
 Scan All" for the original bytes came back with zero matches even though the cheat looked
@@ -72,13 +72,13 @@ a full game restart (not just Magic Wand) clears whatever was left behind.
    destination register, or no clamp-call sequence following). The fourth
    (`subss xmm0,[rsi+0x10]` at RVA `0x3D16EB`) was followed by
    `cmp [rbx+0x189],r15b → je+0x18 → const-load → xor r9d,r9d → const-load → call →
-   movss [rbx+0x170],xmm0` — byte-for-byte the same shape as the original confirmed
+movss [rbx+0x170],xmm0` — byte-for-byte the same shape as the original confirmed
    `subss → cmp[rbx+0x171],r15b → je+0x18 → ... → movss [rbx+0x158],xmm0` sequence, just
    with the class's fields shifted to new offsets (it picked up new fields over the year).
 7. Needed a way to gate the cheat to the player only (this is a combat-only game — a
    blanket "nobody takes damage" cheat would also make enemies unkillable and break the
-   game entirely). The old table's player/enemy check (`[rbx+0x120]`) was the *cheat
-   author's own discovery*, unrelated to the damage instruction itself — so it had to be
+   game entirely). The old table's player/enemy check (`[rbx+0x120]`) was the _cheat
+   author's own discovery_, unrelated to the damage instruction itself — so it had to be
    re-found separately. Expanded the `Health` class's **`fields`** list (not `methods`)
    in the same Mono dissector and found `<IsPlayer>k__BackingField` (boolean) directly by
    name at offset `0x130`. Much more reliable than reverse-engineering it from instruction
@@ -100,15 +100,15 @@ All are `code_cave`/`code_patch` entries with a `patchSignature`/`signature` (li
 scan, not a hardcoded RVA) — so these should keep working across GameAssembly.dll
 relocations and minor patches, as long as the byte patterns themselves don't change.
 
-| Cheat | Site (AOB) | Mechanism |
-|---|---|---|
-| Invincibility ✅ re-verified v2.22 | Two sites in `Health.<TakeDamage>g__ApplyDamageToHealth\|249_1`, both the same `subss xmm0,[rsi+0x10]` instruction: RVA `0x3D16EB` (context `44 38 BB 89 01 00 00 74 18`) and RVA `0x3D13D0` (context `44 0F 2F C8`) | Checks `[rbx+0x130]` (`<IsPlayer>k__BackingField`) at each site; if player, skips the subtract entirely. First site gates the lethal/final HP field (`[rbx+0x170]`) — prevented death but left a second, separate HP-like field (`[rbx+0x178]`) still ticking down on normal hits, bottoming out near zero (only recovered by rare healing items, no passive regen). Second site patches that field too via `caveSites` (multi-site `code_cave`, `src/hooks/useTrainer.ts`) — confirmed 2026-07-14 across multiple full runs: HP bar does not move at all. Re-derived 2026-07-13 directly from the running v2.22 process (CE's Mono/Il2Cpp dissector + Magic Wand's AOB Scan/Read Bytes/Scan-16KB tools) — the June 2025 table's version of this patch no longer matched anything. |
-| Unlimited Glitch Energy 🗑️ dropped | — | User doesn't want it. Left in this doc for history only; not in the trainer JSON reasoning below (still physically present in the JSON but should be treated as abandoned — not re-verified and not wanted). |
-| Unlimited Dodge 🗑️ dropped | — | User doesn't want it. Same as above. |
-| Glitch Token Never Decreases ✅ re-verified v2.22 | `PlayerStatBonuses.RemoveUpgradeProtocol`, `29 78 2C EB 47` (patches first 3 bytes only) | NOPs the `sub [rax+2C],edi`. Direct byte patch. Re-checked 2026-07-14 with the AOB Scan tool — pattern matched exactly, and the surrounding context (`48 8B 83 70 01 00 00 48 85 C0 74 74 ...`) is structurally consistent with the original disassembly (some field offsets/branch targets shifted, as expected from a recompile, but same shape). No changes needed. |
-| Glitch Charge Never Decreases ✅ re-verified v2.22 (redesigned) | `Player.SetGlitchChargesAmount`, RVA `0x380AC2`, `89 7B 30 48 85 C9 74 0E` (patches first 6 bytes: `mov [rbx+0x30],edi` + `test rcx,rcx`) | The original inline-decrement site inside `OnGlitchBomb` no longer exists — that method was restructured (now takes an `isStarted: bool` parameter that didn't exist before, so this wasn't just a recompile). Rather than chase the new decrement site, patched the **setter** instead: `SetGlitchChargesAmount(chargesAmount)` writes `edi` (the parameter) straight to `[rbx+0x30]` with no clamping. Since every charge change (pickups *and* usage) funnels through this one setter, the cave now compares the incoming value against the current one and only stores it if it's not lower — pickups still raise the count normally, usage no longer lowers it. Centralizing on the setter is arguably more robust than the original table's approach of patching one specific call site. |
-| Orb Pickup x50 ⚠️ unverified v2.22 | `OrbsWorld.PickupOrbs`, `45 33 C0 03 53 18 ...` (patches first 6 bytes: `xor r8d,r8d` + `add edx,[rbx+18]`) | Reproduces the original `xor r8d,r8d` unchanged (downstream code depends on r8 being zeroed), captures `[rbx+18]` into `ecx`, multiplies by a hardcoded 50, adds the result to `edx` instead of the raw pickup amount. From the stale June 2025 table — not yet re-checked against v2.22, and likely to be replaced with a direct master-value read/write instead (see below) rather than re-derived as a multiplier cave. |
-| Shard/Credit Pickup x50 ⚠️ unverified v2.22 | `Player.set_Credits`, `01 BB ?? ?? 00 00 01 7B 20` (patches first 6 bytes: `add [rbx+688],edi`) | Multiplies `edi` by a hardcoded 50, then reproduces the original `add [rbx+688],edi` unchanged. **The `+0x688` offset is hardcoded** (the CT table's wildcards only cover the low 16 bits of the displacement; this was resolved against the June 2025 build, not v2.22) — from the stale table, not yet re-checked, and likely to be replaced with a direct master-value read/write instead (see below). |
+| Cheat                                                           | Site (AOB)                                                                                                                                                                                                           | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Invincibility ✅ re-verified v2.22                              | Two sites in `Health.<TakeDamage>g__ApplyDamageToHealth\|249_1`, both the same `subss xmm0,[rsi+0x10]` instruction: RVA `0x3D16EB` (context `44 38 BB 89 01 00 00 74 18`) and RVA `0x3D13D0` (context `44 0F 2F C8`) | Checks `[rbx+0x130]` (`<IsPlayer>k__BackingField`) at each site; if player, skips the subtract entirely. First site gates the lethal/final HP field (`[rbx+0x170]`) — prevented death but left a second, separate HP-like field (`[rbx+0x178]`) still ticking down on normal hits, bottoming out near zero (only recovered by rare healing items, no passive regen). Second site patches that field too via `caveSites` (multi-site `code_cave`, `src/hooks/useTrainer.ts`) — confirmed 2026-07-14 across multiple full runs: HP bar does not move at all. Re-derived 2026-07-13 directly from the running v2.22 process (CE's Mono/Il2Cpp dissector + Magic Wand's AOB Scan/Read Bytes/Scan-16KB tools) — the June 2025 table's version of this patch no longer matched anything.             |
+| Unlimited Glitch Energy 🗑️ dropped                              | —                                                                                                                                                                                                                    | User doesn't want it. Left in this doc for history only; not in the trainer JSON reasoning below (still physically present in the JSON but should be treated as abandoned — not re-verified and not wanted).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Unlimited Dodge 🗑️ dropped                                      | —                                                                                                                                                                                                                    | User doesn't want it. Same as above.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Glitch Token Never Decreases ✅ re-verified v2.22               | `PlayerStatBonuses.RemoveUpgradeProtocol`, `29 78 2C EB 47` (patches first 3 bytes only)                                                                                                                             | NOPs the `sub [rax+2C],edi`. Direct byte patch. Re-checked 2026-07-14 with the AOB Scan tool — pattern matched exactly, and the surrounding context (`48 8B 83 70 01 00 00 48 85 C0 74 74 ...`) is structurally consistent with the original disassembly (some field offsets/branch targets shifted, as expected from a recompile, but same shape). No changes needed.                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Glitch Charge Never Decreases ✅ re-verified v2.22 (redesigned) | `Player.SetGlitchChargesAmount`, RVA `0x380AC2`, `89 7B 30 48 85 C9 74 0E` (patches first 6 bytes: `mov [rbx+0x30],edi` + `test rcx,rcx`)                                                                            | The original inline-decrement site inside `OnGlitchBomb` no longer exists — that method was restructured (now takes an `isStarted: bool` parameter that didn't exist before, so this wasn't just a recompile). Rather than chase the new decrement site, patched the **setter** instead: `SetGlitchChargesAmount(chargesAmount)` writes `edi` (the parameter) straight to `[rbx+0x30]` with no clamping. Since every charge change (pickups _and_ usage) funnels through this one setter, the cave now compares the incoming value against the current one and only stores it if it's not lower — pickups still raise the count normally, usage no longer lowers it. Centralizing on the setter is arguably more robust than the original table's approach of patching one specific call site. |
+| Orb Pickup x50 ⚠️ unverified v2.22                              | `OrbsWorld.PickupOrbs`, `45 33 C0 03 53 18 ...` (patches first 6 bytes: `xor r8d,r8d` + `add edx,[rbx+18]`)                                                                                                          | Reproduces the original `xor r8d,r8d` unchanged (downstream code depends on r8 being zeroed), captures `[rbx+18]` into `ecx`, multiplies by a hardcoded 50, adds the result to `edx` instead of the raw pickup amount. From the stale June 2025 table — not yet re-checked against v2.22, and likely to be replaced with a direct master-value read/write instead (see below) rather than re-derived as a multiplier cave.                                                                                                                                                                                                                                                                                                                                                                     |
+| Shard/Credit Pickup x50 ⚠️ unverified v2.22                     | `Player.set_Credits`, `01 BB ?? ?? 00 00 01 7B 20` (patches first 6 bytes: `add [rbx+688],edi`)                                                                                                                      | Multiplies `edi` by a hardcoded 50, then reproduces the original `add [rbx+688],edi` unchanged. **The `+0x688` offset is hardcoded** (the CT table's wildcards only cover the low 16 bits of the displacement; this was resolved against the June 2025 build, not v2.22) — from the stale table, not yet re-checked, and likely to be replaced with a direct master-value read/write instead (see below).                                                                                                                                                                                                                                                                                                                                                                                      |
 
 **Orb/Shard direction change**: rather than re-deriving these two as pickup-multiplier
 caves (hand-assembled x86, `code_cave`), the plan is to find a stable pointer to the
@@ -119,20 +119,20 @@ Simpler, no assembly, easier to verify. Not yet done.
 
 **Before re-enabling any `⚠️ unverified` cheat**: run its `signature` through the AOB Scan
 tool first. A clean "not found" is safe (the cheat just won't turn on). The dangerous case
-is a signature that still finds *a* match — possibly a coincidental wrong location in the
+is a signature that still finds _a_ match — possibly a coincidental wrong location in the
 updated binary — since installing a cave/patch there hijacks whatever unrelated code
 actually lives at that address. Read the context bytes and sanity-check them the same way
 Invincibility was re-derived above before trusting a "found" result.
 
 ## Why no Instant Kill
 
-The CT table's "Instant Kill" (enemies die in one hit) uses the *same* patch site as
+The CT table's "Instant Kill" (enemies die in one hit) uses the _same_ patch site as
 Invincibility, distinguished at runtime by a CE-side flag byte the Lua/hotkey layer
 toggles. Magic Wand has no per-cheat flag-byte mechanism — each `code_cave` cheat
 independently installs/removes its own JMP at enable/disable, keyed by `cheat_id` in
 `CAVE_STATE` (`src-tauri/src/lib.rs`). Two cheats sharing one patch site would stomp each
-other's "original bytes" snapshot: whichever enables second would snapshot the *first
-cheat's* JMP as "original," and disabling it later would restore corrupted bytes instead
+other's "original bytes" snapshot: whichever enables second would snapshot the _first
+cheat's_ JMP as "original," and disabling it later would restore corrupted bytes instead
 of the real original code.
 
 Since Invincibility was the actual goal (not one-shotting enemies — this is a combat-only
@@ -169,7 +169,7 @@ original bytes that the CPU would misdecode on return. Extended:
   rolled back so the cheat doesn't end up half-installed.
 
 **Runaway retry-storm bug (found and fixed 2026-07-13):** the address cache above was
-only populated on a *successful* resolution. If a `code_patch`'s signature failed to
+only populated on a _successful_ resolution. If a `code_patch`'s signature failed to
 resolve (stale, as happened here), the cache never got set, and the silently-swallowed
 50ms re-apply interval would retry a full, uncached module scan on every single tick,
 forever. Enabling 3 stale `code_patch` cheats at once this way caused severe whole-PC
@@ -181,9 +181,10 @@ forever.
 
 **Diagnostic tools added to `DevPanel.tsx`** (all gated behind Settings → Dev Mode) for
 re-deriving stale patches without leaving the app:
+
 - **AOB Scan** — module + pattern → first match's absolute address, RVA, and 32 bytes of context.
 - **Read Bytes** — absolute address → 512 raw bytes, plus RVA if a module name is set in the AOB Scan row.
-- **Scan 16KB From Addr** — like AOB Scan, but returns *every* match within a 16KB window
+- **Scan 16KB From Addr** — like AOB Scan, but returns _every_ match within a 16KB window
   from a given address (`aob_scan_all_range`, `src-tauri/src/lib.rs`) instead of just the
   first hit in the whole module. Useful for hunting a generic sub-pattern (e.g. a bare
   `subss` opcode) once a containing function's real entry point is already known — a

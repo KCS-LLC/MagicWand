@@ -1,8 +1,10 @@
-﻿mod engine;
+﻿pub mod engine;
 mod logger;
-mod mono;
+pub mod mono;
+pub mod il2cpp;
+pub mod godot;
 mod scanner;
-mod ue5;
+pub mod ue5;
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -44,6 +46,29 @@ fn find_game(name: &str) -> Option<u32> {
 #[tauri::command]
 fn get_module_base(pid: u32, module_name: &str) -> Option<String> {
     engine::get_module_info(pid, module_name).map(|(addr, _)| addr.to_string())
+}
+
+/// Resolves a Godot GDScript member variable (see godot.rs). Returns [instance, address];
+/// pass the instance back as `hint` on later calls so only the first call pays for a scan.
+#[tauri::command]
+async fn resolve_godot_member(
+    pid: u32,
+    module_name: String,
+    vtable_rva: String,
+    member_count: usize,
+    tags: Vec<i64>,
+    index: usize,
+    hint: Option<String>,
+) -> Result<Vec<String>, String> {
+    blocking!({
+        let rva = parse_addr(&vtable_rva)? as usize;
+        let hint = match hint {
+            Some(h) => Some(parse_addr(&h)? as usize),
+            None => None,
+        };
+        godot::resolve_member(pid, &module_name, rva, member_count, &tags, index, hint)
+            .map(|(i, a)| vec![format!("0x{:X}", i), format!("0x{:X}", a)])
+    })
 }
 
 #[tauri::command]
@@ -200,6 +225,507 @@ fn resolve_mono_chain(
     Ok(format!("0x{:X}", addr))
 }
 
+/// Resolve the native (JIT) entry address of a managed method, for code_patch targets
+/// that have no fixed RVA. The method must have executed at least once this session.
+// async + spawn_blocking: this scans the whole process and must not run on the UI thread
+// (a sync command would freeze the window for the duration).
+#[tauri::command]
+async fn resolve_mono_method(
+    pid: u32,
+    module_name: String,
+    assembly: String,
+    namespace: String,
+    class_name: String,
+    method: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (mono_base, _) = require_module(pid, &module_name)?;
+        let hits = mono::locate_method_jit(pid, mono_base, &assembly, &namespace, &class_name, &method)?;
+        // Mono has one JitInfo per compiled body; more than one means a generic/shared
+        // instantiation, which we can't pick between safely.
+        if hits.len() > 1 {
+            return Err(format!(
+                "'{}.{}' has {} compiled bodies — refusing to guess",
+                class_name, method, hits.len()
+            ));
+        }
+        Ok(format!("0x{:X}", hits[0].code_start))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Saved original bytes of IL2CPP patches, keyed by (pid, cheat id), so each toggle restores
+/// only its own sites: Vec of (patched address, original bytes).
+static IL2CPP_PATCH_ORIGINALS: LazyLock<Mutex<HashMap<(u32, String), Vec<(usize, Vec<u8>)>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn restore_il2cpp_patch(pid: u32, key: &str) -> Result<(), String> {
+    let mut saved = IL2CPP_PATCH_ORIGINALS.lock().map_err(|e| e.to_string())?;
+    if let Some(sites) = saved.remove(&(pid, key.to_string())) {
+        for (addr, orig) in sites {
+            engine::write_memory_rw(pid, addr, &orig)?;
+        }
+    }
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MethodRefArg {
+    namespace: Option<String>,
+    class_name: String,
+    method: String,
+}
+
+/// Make IL2CPP methods (every overload) return immediately, or restore them. Only valid for
+/// void methods: `ret` at byte 0 runs before the method touches anything, so it is safe for
+/// any void method — the trainer author must confirm the method is void.
+#[tauri::command]
+async fn set_il2cpp_method_ret(
+    pid: u32,
+    module_name: String,
+    key: String,
+    methods: Vec<MethodRefArg>,
+    enable: bool,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !enable { return restore_il2cpp_patch(pid, &key); }
+        let (base, _) = require_module(pid, &module_name)?;
+        {
+            let saved = IL2CPP_PATCH_ORIGINALS.lock().map_err(|e| e.to_string())?;
+            if saved.contains_key(&(pid, key.clone())) { return Ok(()); }
+        }
+        let mut sites: Vec<(usize, Vec<u8>)> = Vec::new();
+        for m in &methods {
+            let ns = m.namespace.clone().unwrap_or_default();
+            for addr in il2cpp::find_method_addresses(pid, base, &ns, &m.class_name, &m.method)? {
+                let orig = engine::read_memory(pid, addr, 1)?;
+                if orig[0] == 0xC3 {
+                    return Err(format!("{}::{} already starts with `ret` (left over from an earlier session? restart the game)", m.class_name, m.method));
+                }
+                sites.push((addr, orig));
+            }
+        }
+        for (addr, _) in &sites { engine::write_memory_rw(pid, *addr, &[0xC3])?; }
+        IL2CPP_PATCH_ORIGINALS.lock().map_err(|e| e.to_string())?.insert((pid, key), sites);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// NOP the *decrement* store to `field_class.field` — the first store after a `subss` — in
+/// every overload of each listed method, or restore. Used for "lock this stat" toggles: the
+/// stat can still be raised (eating, resting) but the decay is gone. At least one site must
+/// be found across all methods, and each overload contributes at most one.
+#[tauri::command]
+async fn set_il2cpp_decay_nop(
+    pid: u32,
+    module_name: String,
+    key: String,
+    methods: Vec<MethodRefArg>,
+    field_class: String,
+    field: String,
+    enable: bool,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !enable { return restore_il2cpp_patch(pid, &key); }
+        let (base, _) = require_module(pid, &module_name)?;
+        {
+            let saved = IL2CPP_PATCH_ORIGINALS.lock().map_err(|e| e.to_string())?;
+            if saved.contains_key(&(pid, key.clone())) { return Ok(()); }
+        }
+        let entries = il2cpp::all_method_entries(pid, base)?;
+        let off = il2cpp::field_offset_of(pid, base, "", &field_class, &field)? as i32;
+        let mut sites: Vec<(usize, Vec<u8>)> = Vec::new();
+        for m in &methods {
+            let ns = m.namespace.clone().unwrap_or_default();
+            for start in il2cpp::find_method_addresses(pid, base, &ns, &m.class_name, &m.method)? {
+                let end = match entries.binary_search(&start) {
+                    Ok(i) => entries.get(i + 1).copied(),
+                    Err(i) => entries.get(i).copied(),
+                }.ok_or("could not bound method size")?;
+                let code = engine::read_memory(pid, start, (end - start).min(0x4000))?;
+                let after_subss = |idx: usize| -> bool {
+                    (idx.saturating_sub(0x30)..idx).any(|i| {
+                        code[i] == 0xF3 && (
+                            (code.get(i + 1) == Some(&0x0F) && code.get(i + 2) == Some(&0x5C)) ||
+                            (code.get(i + 1).map(|b| b & 0xF0 == 0x40).unwrap_or(false)
+                                && code.get(i + 2) == Some(&0x0F) && code.get(i + 3) == Some(&0x5C))
+                        )
+                    })
+                };
+                if let Some((idx, len)) = mono::find_movss_stores(&code, off).into_iter().find(|(i, _)| after_subss(*i)) {
+                    sites.push((start + idx, code[idx..idx + len].to_vec()));
+                }
+            }
+        }
+        if sites.is_empty() {
+            return Err(format!("No decrement store to {} found in the listed methods (game updated?)", field));
+        }
+        for (addr, orig) in &sites { engine::write_memory_rw(pid, *addr, &vec![0x90u8; orig.len()])?; }
+        IL2CPP_PATCH_ORIGINALS.lock().map_err(|e| e.to_string())?.insert((pid, key), sites);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Il2cppHopArg {
+    /// "field" | "offset" | "listItem" | "listFindByte"
+    kind: String,
+    namespace: Option<String>,
+    class_name: Option<String>,
+    field: Option<String>,
+    offset: Option<usize>,
+    index: Option<usize>,
+    equals: Option<u8>,
+}
+
+/// Resolve a value inside an IL2CPP game by walking from a static singleton through `hops`.
+/// Async + spawn_blocking because it reads the whole type table (~100 KB) and many fields.
+#[tauri::command]
+async fn resolve_il2cpp_path(
+    pid: u32,
+    module_name: String,
+    namespace: String,
+    class_name: String,
+    static_field: String,
+    hops: Vec<Il2cppHopArg>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (base, _) = require_module(pid, &module_name)?;
+        let mut path = Vec::new();
+        for h in hops {
+            let ns = h.namespace.clone().unwrap_or_default();
+            let cn = h.class_name.clone().unwrap_or_default();
+            path.push(match h.kind.as_str() {
+                "field" => il2cpp::Hop::Field { namespace: ns, class_name: cn, field: h.field.clone().ok_or("field hop needs `field`")? },
+                "offset" => il2cpp::Hop::Offset(h.offset.ok_or("offset hop needs `offset`")?),
+                "listItem" => il2cpp::Hop::ListItem(h.index.unwrap_or(0)),
+                "listFindByte" => il2cpp::Hop::ListFindByte {
+                    namespace: ns,
+                    class_name: cn,
+                    field: h.field.clone().ok_or("listFindByte needs `field`")?,
+                    equals: h.equals.unwrap_or(0),
+                },
+                other => return Err(format!("unknown hop kind '{}'", other)),
+            });
+        }
+        let addr = il2cpp::resolve_path(pid, base, &namespace, &class_name, &static_field, &path)?;
+        Ok(format!("0x{:X}", addr))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Original bytes of every site we edited for the store-NOP cheat (native NOPs and IL
+/// edits), keyed by (pid, address), so toggling off restores exactly what the game had.
+static STORE_NOP_ORIGINALS: LazyLock<Mutex<HashMap<(u32, usize), Vec<u8>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Processes where we edited a method's IL (before it was compiled); see `set_mono_store_nop`.
+static IL_PATCHED_PIDS: LazyLock<Mutex<std::collections::HashSet<u32>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IlPatchArg {
+    offset: usize,
+    /// Space-separated hex of the bytes that must be present.
+    expect: String,
+    /// Space-separated hex written in their place (same length).
+    replace: String,
+}
+
+fn parse_hex(s: &str) -> Result<Vec<u8>, String> {
+    s.split_whitespace()
+        .map(|b| u8::from_str_radix(b, 16).map_err(|_| format!("bad hex byte '{}'", b)))
+        .collect()
+}
+
+/// NOP (enable) or restore (disable) every store to `class.field` inside `class.method`, so
+/// the method keeps running (on-hit triggers, popups) but the stat never changes. Returns a
+/// short status for the UI: "native" | "il" | "restored" | "restored-baked".
+///
+/// If the method has already been JIT-compiled the inlined native stores are NOPped (fully
+/// reversible). If it hasn't — and the trainer supplies `il_signature` + `il_patches` — the
+/// method's IL is edited in memory *before* it compiles, so even the first call is harmless.
+/// The catch: a method compiled from edited IL stays edited; disabling restores the IL but
+/// cannot un-compile it ("restored-baked": restart the game to get damage back).
+/// Runs whole-process memory searches, so it is async + off-thread.
+#[tauri::command]
+async fn set_mono_store_nop(
+    pid: u32,
+    module_name: String,
+    assembly: String,
+    namespace: String,
+    class_name: String,
+    method: String,
+    field: String,
+    il_signature: Option<String>,
+    il_patches: Option<Vec<IlPatchArg>>,
+    enable: bool,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut saved = STORE_NOP_ORIGINALS.lock().map_err(|e| e.to_string())?;
+        if !enable {
+            let keys: Vec<(u32, usize)> = saved.keys().filter(|(p, _)| *p == pid).cloned().collect();
+            for key in &keys {
+                if let Some(orig) = saved.remove(key) {
+                    engine::write_memory_rw(pid, key.1, &orig)?;
+                }
+            }
+            drop(saved);
+            let was_il = IL_PATCHED_PIDS.lock().map_err(|e| e.to_string())?.remove(&pid);
+            if was_il {
+                // Did the game compile the method while its IL was edited?
+                let (mono_base, _) = require_module(pid, &module_name)?;
+                if mono::locate_method_jit(pid, mono_base, &assembly, &namespace, &class_name, &method).is_ok() {
+                    return Ok("restored-baked".to_string());
+                }
+            }
+            return Ok("restored".to_string());
+        }
+        if saved.keys().any(|(p, _)| *p == pid) {
+            return Ok("already".to_string());
+        }
+        let (mono_base, _) = require_module(pid, &module_name)?;
+        match mono::find_field_store_sites(pid, mono_base, &assembly, &namespace, &class_name, &method, &field) {
+            Ok(sites) => {
+                for (addr, len) in &sites {
+                    let current = engine::read_memory(pid, *addr, *len)?;
+                    saved.insert((pid, *addr), current);
+                    engine::write_memory_rw(pid, *addr, &vec![0x90u8; *len])?;
+                }
+                Ok("native".to_string())
+            }
+            Err(e) if mono::is_not_compiled(&e) => {
+                let (sig, patches) = match (il_signature, il_patches) {
+                    (Some(s), Some(p)) if !p.is_empty() => (parse_hex(&s)?, p),
+                    _ => return Err(e),
+                };
+                let patches: Vec<mono::IlPatch> = patches
+                    .iter()
+                    .map(|p| Ok(mono::IlPatch { offset: p.offset, expect: parse_hex(&p.expect)?, replace: parse_hex(&p.replace)? }))
+                    .collect::<Result<_, String>>()?;
+                for p in &patches {
+                    if p.expect.len() != p.replace.len() { return Err("IL patch expect/replace length mismatch".to_string()); }
+                }
+                let sites = mono::il_patch_sites(pid, &sig, &patches)?;
+                for (addr, orig, repl) in &sites {
+                    saved.insert((pid, *addr), orig.clone());
+                    engine::write_memory_rw(pid, *addr, repl)?;
+                }
+                IL_PATCHED_PIDS.lock().map_err(|e| e.to_string())?.insert(pid);
+                Ok("il".to_string())
+            }
+            Err(e) => Err(e),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Original bytes per (pid, cheat id) for `set_mono_method_ret`, as (address, bytes) pairs.
+static METHOD_RET_ORIGINALS: LazyLock<Mutex<HashMap<(u32, String), Vec<(usize, Vec<u8>)>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// (pid, cheat id) pairs whose method IL was edited before it compiled.
+static METHOD_RET_IL: LazyLock<Mutex<std::collections::HashSet<(u32, String)>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+
+/// Make a Mono method do nothing and return 0 while enabled (e.g. a stat-reduction method), and
+/// restore it when disabled. Works for void and int-returning methods. Native path writes
+/// `xor eax,eax; ret` over the first bytes of the JIT body; if the method hasn't compiled yet and
+/// the trainer supplies `il_signature` + `il_patches`, its IL is edited instead (same trade-off
+/// as `set_mono_store_nop`). Returns "native" | "il" | "restored" | "restored-baked" | "already".
+#[tauri::command]
+async fn set_mono_method_ret(
+    pid: u32,
+    cheat_id: String,
+    module_name: String,
+    assembly: String,
+    namespace: String,
+    class_name: String,
+    method: String,
+    il_signature: Option<String>,
+    il_patches: Option<Vec<IlPatchArg>>,
+    enable: bool,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let key = (pid, cheat_id);
+        let mut saved = METHOD_RET_ORIGINALS.lock().map_err(|e| e.to_string())?;
+        if !enable {
+            if let Some(sites) = saved.remove(&key) {
+                for (addr, orig) in sites {
+                    engine::write_memory_rw(pid, addr, &orig)?;
+                }
+            }
+            drop(saved);
+            if METHOD_RET_IL.lock().map_err(|e| e.to_string())?.remove(&key) {
+                let (mono_base, _) = require_module(pid, &module_name)?;
+                if mono::locate_method_jit(pid, mono_base, &assembly, &namespace, &class_name, &method).is_ok() {
+                    return Ok("restored-baked".to_string());
+                }
+            }
+            return Ok("restored".to_string());
+        }
+        if saved.contains_key(&key) {
+            return Ok("already".to_string());
+        }
+        let (mono_base, _) = require_module(pid, &module_name)?;
+        match mono::locate_method_jit(pid, mono_base, &assembly, &namespace, &class_name, &method) {
+            Ok(hits) => {
+                if hits.len() != 1 {
+                    return Err(format!("'{}.{}' has {} compiled bodies — refusing to guess", class_name, method, hits.len()));
+                }
+                const RET0: [u8; 3] = [0x31, 0xC0, 0xC3]; // xor eax,eax; ret
+                let at = hits[0].code_start;
+                let orig = engine::read_memory(pid, at, RET0.len())?;
+                if orig == RET0 {
+                    return Err("already patched (stale patch from an earlier session?) — restart the game".to_string());
+                }
+                engine::write_memory_rw(pid, at, &RET0)?;
+                saved.insert(key, vec![(at, orig)]);
+                Ok("native".to_string())
+            }
+            Err(e) if mono::is_not_compiled(&e) => {
+                let (sig, patches) = match (il_signature, il_patches) {
+                    (Some(s), Some(p)) if !p.is_empty() => (parse_hex(&s)?, p),
+                    _ => return Err(e),
+                };
+                let patches: Vec<mono::IlPatch> = patches
+                    .iter()
+                    .map(|p| Ok(mono::IlPatch { offset: p.offset, expect: parse_hex(&p.expect)?, replace: parse_hex(&p.replace)? }))
+                    .collect::<Result<_, String>>()?;
+                for p in &patches {
+                    if p.expect.len() != p.replace.len() { return Err("IL patch expect/replace length mismatch".to_string()); }
+                }
+                let sites = mono::il_patch_sites(pid, &sig, &patches)?;
+                let mut done = Vec::new();
+                for (addr, orig, repl) in &sites {
+                    engine::write_memory_rw(pid, *addr, repl)?;
+                    done.push((*addr, orig.clone()));
+                }
+                saved.insert(key.clone(), done);
+                METHOD_RET_IL.lock().map_err(|e| e.to_string())?.insert(key);
+                Ok("il".to_string())
+            }
+            Err(e) => Err(e),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MonoMethodArg {
+    assembly: String,
+    #[serde(default)]
+    namespace: String,
+    class_name: String,
+    method: String,
+}
+
+/// Skip one specific call while leaving the rest of the caller running: inside the JIT body of
+/// `caller`, find the direct call to `callee` (`mov r11, <callee code>; call r11` = 49 BB imm64
+/// 41 FF D3) and NOP the 3-byte `call r11`. The call's arguments are already loaded in registers
+/// and Win64 has no caller cleanup, so skipping a void call is safe. Both methods must already be
+/// compiled. Returns "native" | "restored" | "already".
+#[tauri::command]
+async fn set_mono_call_nop(
+    pid: u32,
+    cheat_id: String,
+    module_name: String,
+    caller: MonoMethodArg,
+    callee: MonoMethodArg,
+    enable: bool,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let key = (pid, cheat_id);
+        let mut saved = METHOD_RET_ORIGINALS.lock().map_err(|e| e.to_string())?;
+        if !enable {
+            if let Some(sites) = saved.remove(&key) {
+                for (addr, orig) in sites {
+                    engine::write_memory_rw(pid, addr, &orig)?;
+                }
+            }
+            return Ok("restored".to_string());
+        }
+        if saved.contains_key(&key) {
+            return Ok("already".to_string());
+        }
+        let (mono_base, _) = require_module(pid, &module_name)?;
+        let one = |m: &MonoMethodArg| -> Result<mono::MethodJit, String> {
+            let mut hits = mono::locate_method_jit(pid, mono_base, &m.assembly, &m.namespace, &m.class_name, &m.method)?;
+            if hits.len() != 1 {
+                return Err(format!("'{}.{}' has {} compiled bodies — refusing to guess", m.class_name, m.method, hits.len()));
+            }
+            Ok(hits.remove(0))
+        };
+        let callee_jit = one(&callee)?;
+        let caller_jit = one(&caller)?;
+        let code = engine::read_memory(pid, caller_jit.code_start, caller_jit.code_size)?;
+        let want = (callee_jit.code_start as u64).to_le_bytes();
+        let mut sites = Vec::new();
+        for i in 0..code.len().saturating_sub(13) {
+            if code[i] == 0x49 && code[i + 1] == 0xBB && code[i + 2..i + 10] == want && code[i + 10..i + 13] == [0x41, 0xFF, 0xD3] {
+                sites.push(caller_jit.code_start + i + 10);
+            }
+        }
+        if sites.is_empty() {
+            return Err(format!(
+                "No direct call to '{}.{}' found in '{}.{}' (game updated, or the callee was not compiled when the caller was)",
+                callee.class_name, callee.method, caller.class_name, caller.method
+            ));
+        }
+        let mut done = Vec::new();
+        for at in sites {
+            let orig = engine::read_memory(pid, at, 3)?;
+            engine::write_memory_rw(pid, at, &[0x90, 0x90, 0x90])?;
+            done.push((at, orig));
+        }
+        saved.insert(key, done);
+        Ok("native".to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MonoHopArg {
+    namespace: String,
+    class_name: String,
+    field: String,
+    #[serde(default)]
+    dict_key: Option<i32>,
+}
+
+#[tauri::command]
+fn resolve_mono_path(
+    pid: u32,
+    module_name: String,
+    assembly: String,
+    namespace: String,
+    class_name: String,
+    static_field: String,
+    hops: Vec<MonoHopArg>,
+) -> Result<String, String> {
+    let (mono_base, _) = require_module(pid, &module_name)?;
+    let hops: Vec<mono::MonoHop> = hops
+        .into_iter()
+        .map(|h| mono::MonoHop { namespace: h.namespace, class_name: h.class_name, field: h.field, dict_key: h.dict_key })
+        .collect();
+    let addr = mono::resolve_mono_path(
+        pid, mono_base, &assembly, &namespace, &class_name, &static_field, &hops,
+    )?;
+    Ok(format!("0x{:X}", addr))
+}
+
 #[tauri::command]
 fn resolve_mono_field(
     pid: u32,
@@ -218,7 +744,7 @@ fn resolve_mono_field(
 }
 
 #[tauri::command]
-fn resolve_ue5_prop(
+async fn resolve_ue5_prop(
     pid: u32,
     module_name: String,
     gobjects_aob: Option<String>,
@@ -229,23 +755,25 @@ fn resolve_ue5_prop(
     property_offset: usize,
     extra_offsets: Option<Vec<usize>>,
 ) -> Result<String, String> {
-    let (base, size) = require_module(pid, &module_name)?;
-    let chain = extra_offsets.as_deref().unwrap_or(&[]);
-    let addr = if let (Some(go), Some(gn)) = (gobjects_offset, gnames_offset) {
-        ue5::resolve_ue5_prop_static(pid, base, size, go, gn, &class_name, property_offset, chain)?
-    } else {
-        let aob_go = gobjects_aob.as_deref().unwrap_or("");
-        let aob_gn = gnames_aob.as_deref().unwrap_or("");
-        ue5::resolve_ue5_prop(pid, base, size, aob_go, aob_gn, &class_name, property_offset, chain)?
-    };
-    Ok(format!("0x{:X}", addr))
+    blocking!({
+        let (base, size) = require_module(pid, &module_name)?;
+        let chain = extra_offsets.as_deref().unwrap_or(&[]);
+        let addr = if let (Some(go), Some(gn)) = (gobjects_offset, gnames_offset) {
+            ue5::resolve_ue5_prop_static(pid, base, size, go, gn, &class_name, property_offset, chain)?
+        } else {
+            let aob_go = gobjects_aob.as_deref().unwrap_or("");
+            let aob_gn = gnames_aob.as_deref().unwrap_or("");
+            ue5::resolve_ue5_prop(pid, base, size, aob_go, aob_gn, &class_name, property_offset, chain)?
+        };
+        Ok(format!("0x{:X}", addr))
+    })
 }
 
 /// Like resolve_ue5_prop, but takes an explicit Ue5Offsets struct instead of assuming
 /// ue5::Ue5Offsets::ue5_default(). Lets a trainer target UE5 games whose internal struct
 /// layout (FUObjectItem size, FName entry header, etc.) differs from the default.
 #[tauri::command]
-fn resolve_ue5_prop_custom(
+async fn resolve_ue5_prop_custom(
     pid: u32,
     module_name: String,
     gobjects_offset: usize,
@@ -255,18 +783,106 @@ fn resolve_ue5_prop_custom(
     extra_offsets: Option<Vec<usize>>,
     offsets: ue5::Ue5Offsets,
 ) -> Result<String, String> {
-    let (base, _) = require_module(pid, &module_name)?;
-    let chain = extra_offsets.as_deref().unwrap_or(&[]);
-    let gobjects_base = base + gobjects_offset;
-    let gnames_base = base + gnames_offset;
-    let obj_ptr = ue5::find_object_by_class(pid, gobjects_base, gnames_base, &class_name, &offsets)?;
-    let initial = obj_ptr + property_offset;
-    let addr = if chain.is_empty() {
-        initial
-    } else {
-        engine::resolve_pointer_path(pid, initial, chain)?
-    };
-    Ok(format!("0x{:X}", addr))
+    blocking!({
+        let (base, _) = require_module(pid, &module_name)?;
+        let chain = extra_offsets.as_deref().unwrap_or(&[]);
+        let gobjects_base = base + gobjects_offset;
+        let gnames_base = base + gnames_offset;
+        let obj_ptr = ue5::find_object_by_class(pid, gobjects_base, gnames_base, &class_name, &offsets)?;
+        let initial = obj_ptr + property_offset;
+        let addr = if chain.is_empty() {
+            initial
+        } else {
+            engine::resolve_pointer_path(pid, initial, chain)?
+        };
+        Ok(format!("0x{:X}", addr))
+    })
+}
+
+/// Cheap re-walk of the tail of a ue5_prop chain from an already-known object pointer,
+/// skipping the expensive find_object_by_class GObjects scan entirely. For chains where
+/// the class-object itself (e.g. the player controller) is effectively stable for the
+/// whole session but a downstream hop (e.g. equipped weapon) can legitimately repoint to
+/// a different live object at any time — re-doing the full scan every poll tick to catch
+/// that is needlessly expensive (and, on a debug build against a 500k+-object GObjects
+/// array, slow enough to occasionally fail outright). Pair with a one-time
+/// resolve_ue5_prop_custom (property_offset: 0, extra_offsets: None) to get obj_addr.
+#[tauri::command]
+async fn resolve_pointer_chain_from(
+    pid: u32,
+    obj_addr: String,
+    property_offset: usize,
+    extra_offsets: Vec<usize>,
+) -> Result<String, String> {
+    blocking!({
+        let obj_ptr = parse_addr(&obj_addr)? as usize;
+        let initial = obj_ptr + property_offset;
+        let addr = if extra_offsets.is_empty() {
+            initial
+        } else {
+            engine::resolve_pointer_path(pid, initial, &extra_offsets)?
+        };
+        Ok(format!("0x{:X}", addr))
+    })
+}
+
+/// Cheap sanity check for a ue5NoCache cheat's cached class-object pointer (see
+/// ue5::verify_object_class) — a single read + SuperStruct walk, not a GObjects scan.
+/// Lets the frontend catch a stale-but-non-faulting pointer (e.g. after a level
+/// transition/fast-travel recreates the controller) proactively every tick, instead of
+/// only invalidating the cache when a read/write actually errors — which a stale-but
+/// -still-committed pointer may never do.
+#[tauri::command]
+async fn verify_object_class(
+    pid: u32,
+    module_name: String,
+    gnames_offset: usize,
+    obj_addr: String,
+    class_name: String,
+    offsets: ue5::Ue5Offsets,
+) -> Result<bool, String> {
+    blocking!({
+        let (base, _) = require_module(pid, &module_name)?;
+        let gnames_base = base + gnames_offset;
+        let obj_ptr = parse_addr(&obj_addr)? as usize;
+        Ok(ue5::verify_object_class(pid, gnames_base, obj_ptr, &class_name, &offsets))
+    })
+}
+
+/// Resolves the address of a value field inside a dynamic TArray element (e.g. a currency
+/// stack inside an inventory's `TArray<FItemStack>`), by walking a pointer chain to the
+/// container object then scanning its array for the first element matching `match_class`.
+/// See `ue5::resolve_ue5_array_item` for the exact semantics. `offsets` is optional —
+/// omit it to use `Ue5Offsets::ue5_default()` (BL4-style chunked GObjects).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn resolve_ue5_array_item(
+    pid: u32,
+    module_name: String,
+    gobjects_offset: usize,
+    gnames_offset: usize,
+    class_name: String,
+    property_offset: usize,
+    extra_offsets: Option<Vec<usize>>,
+    array_offset: usize,
+    item_stride: usize,
+    item_ptr_offset: usize,
+    match_class: String,
+    value_offset: usize,
+    offsets: Option<ue5::Ue5Offsets>,
+) -> Result<String, String> {
+    blocking!({
+        let (base, _) = require_module(pid, &module_name)?;
+        let gobjects_base = base + gobjects_offset;
+        let gnames_base = base + gnames_offset;
+        let chain = extra_offsets.as_deref().unwrap_or(&[]);
+        let off = offsets.unwrap_or_else(ue5::Ue5Offsets::ue5_default);
+        let addr = ue5::resolve_ue5_array_item(
+            pid, gobjects_base, gnames_base, &class_name, property_offset, chain,
+            array_offset, item_stride, item_ptr_offset, &match_class, value_offset, &off,
+        )?;
+        Ok(format!("0x{:X}", addr))
+    })
 }
 
 #[tauri::command]
@@ -465,7 +1081,7 @@ async fn enable_code_cave(
     far_jump: bool,
     core_len: usize,
     rip_fixup: Option<RipFixup>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     blocking!({
         let (base, _) = require_module(pid, &module_name)?;
         let rva = parse_addr(&site_rva)? as usize;
@@ -527,7 +1143,7 @@ async fn enable_code_cave(
 
             CAVE_STATE.lock().unwrap().insert(cheat_id, CaveEntry { cave_addr, site_addr, original_bytes });
             crate::mwlog!("[enable_code_cave/far] cave=0x{:X} site=0x{:X} len={} (RVA 0x{})", cave_addr, site_addr, site_len, site_rva);
-            return Ok(());
+            return Ok(format!("0x{:X}", cave_addr));
         }
 
         let site_len = site_len.max(5);
@@ -564,7 +1180,7 @@ async fn enable_code_cave(
 
         CAVE_STATE.lock().unwrap().insert(cheat_id, CaveEntry { cave_addr, site_addr, original_bytes });
         crate::mwlog!("[enable_code_cave] cave=0x{:X} site=0x{:X} len={} (RVA 0x{})", cave_addr, site_addr, site_len, site_rva);
-        Ok(())
+        Ok(format!("0x{:X}", cave_addr))
     })
 }
 
@@ -820,6 +1436,7 @@ pub fn run() {
             find_game,
             get_module_base,
             aob_scan,
+            resolve_godot_member,
             resolve_pointer,
             read_int,
             read_float,
@@ -831,8 +1448,19 @@ pub fn run() {
             patch_bytes,
             resolve_mono_field,
             resolve_mono_chain,
+            resolve_mono_path,
+            resolve_mono_method,
+            set_mono_store_nop,
+            set_mono_method_ret,
+            set_mono_call_nop,
+            resolve_il2cpp_path,
+            set_il2cpp_method_ret,
+            set_il2cpp_decay_nop,
             resolve_ue5_prop,
             resolve_ue5_prop_custom,
+            resolve_pointer_chain_from,
+            verify_object_class,
+            resolve_ue5_array_item,
             write_byte,
             read_byte,
             toggle_bit_flag,

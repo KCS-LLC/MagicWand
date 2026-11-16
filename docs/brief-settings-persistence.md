@@ -1,6 +1,7 @@
 # Brief: Settings Persistence
 
 ## Status
+
 Unimplemented.
 
 ## Problem
@@ -13,11 +14,11 @@ Unimplemented.
 
 ## Settings to persist
 
-| Key | Type | Default |
-|-----|------|---------|
-| `pollInterval` | `number` | `2000` |
-| `scanMode` | `boolean` | `false` |
-| `alwaysOnTop` | `boolean` | `false` |
+| Key            | Type      | Default |
+| -------------- | --------- | ------- |
+| `pollInterval` | `number`  | `2000`  |
+| `scanMode`     | `boolean` | `false` |
+| `alwaysOnTop`  | `boolean` | `false` |
 
 `alwaysOnTop` is included so the always-on-top brief (brief-always-on-top.md) can optionally wire into this store without a separate effort.
 
@@ -76,7 +77,7 @@ export function useSettings() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    getStore().then(async store => {
+    getStore().then(async (store) => {
       const pi = await store.get<number>('pollInterval');
       const sm = await store.get<boolean>('scanMode');
       const aot = await store.get<boolean>('alwaysOnTop');
@@ -105,7 +106,15 @@ export function useSettings() {
     await store.set('alwaysOnTop', value);
   };
 
-  return { pollInterval, setPollInterval, scanMode, setScanMode, alwaysOnTop, setAlwaysOnTop, loaded };
+  return {
+    pollInterval,
+    setPollInterval,
+    scanMode,
+    setScanMode,
+    alwaysOnTop,
+    setAlwaysOnTop,
+    loaded,
+  };
 }
 ```
 
@@ -122,7 +131,15 @@ import { useSettings } from './hooks/useSettings';
 // const [scanMode, setScanMode] = useState(false);
 // Replace pollInterval / setPollInterval from useTrainer with settings hook values
 
-const { pollInterval, setPollInterval, scanMode, setScanMode, alwaysOnTop, setAlwaysOnTop, loaded } = useSettings();
+const {
+  pollInterval,
+  setPollInterval,
+  scanMode,
+  setScanMode,
+  alwaysOnTop,
+  setAlwaysOnTop,
+  loaded,
+} = useSettings();
 const { activeGame, trainers, selectGame, applyCheat, pid } = useTrainer(pollInterval);
 ```
 
@@ -144,6 +161,7 @@ if (!loaded) return null;
 - The `useEffect` poll loop already uses `pollInterval` from closure — no other changes needed inside the hook
 
 Remove from the hook's return:
+
 ```typescript
 // before:
 return { activeGame, trainers, selectGame, applyCheat, pid, pollInterval, setPollInterval };

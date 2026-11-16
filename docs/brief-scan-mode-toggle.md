@@ -1,6 +1,7 @@
 # Brief: Scan Mode Settings Toggle
 
 ## Status
+
 Unimplemented.
 
 ## Problem
@@ -13,10 +14,10 @@ The fix is a **Scan Mode** toggle in Settings. When off (the default), scan chea
 
 ## Behaviour
 
-| Scan Mode | Effect |
-|-----------|--------|
+| Scan Mode     | Effect                                                           |
+| ------------- | ---------------------------------------------------------------- |
 | Off (default) | `type: "scan"` cheats are filtered out of the trainer cheat list |
-| On | All cheats including scan are shown |
+| On            | All cheats including scan are shown                              |
 
 No backend changes. No trainer JSON changes. Purely a frontend display filter.
 
@@ -37,7 +38,7 @@ const [scanMode, setScanMode] = useState(false);
 In the trainer dashboard section, filter the cheat list before rendering:
 
 ```tsx
-const visibleCheats = activeGame.cheats.filter(c => c.type !== 'scan' || scanMode);
+const visibleCheats = activeGame.cheats.filter((c) => c.type !== 'scan' || scanMode);
 ```
 
 Replace the existing `activeGame.cheats.map(...)` with `visibleCheats.map(...)`. No other changes to the render logic.
@@ -54,54 +55,61 @@ interface SettingsPageProps {
   onScanModeChange: (value: boolean) => void;
 }
 
-export function SettingsPage({ pollInterval, onPollIntervalChange, scanMode, onScanModeChange }: SettingsPageProps) {
+export function SettingsPage({
+  pollInterval,
+  onPollIntervalChange,
+  scanMode,
+  onScanModeChange,
+}: SettingsPageProps) {
   return (
-    <div className="page-view">
-      <header className="header">
+    <div className='page-view'>
+      <header className='header'>
         <h1>Settings</h1>
       </header>
 
-      <section className="settings-section">
+      <section className='settings-section'>
         <h2>Performance</h2>
-        <div className="setting-row">
+        <div className='setting-row'>
           <label>Value poll interval (ms)</label>
           <input
-            type="number"
+            type='number'
             min={500}
             max={10000}
             step={500}
             value={pollInterval}
-            onChange={e => onPollIntervalChange(Number(e.target.value))}
+            onChange={(e) => onPollIntervalChange(Number(e.target.value))}
           />
         </div>
       </section>
 
-      <section className="settings-section">
+      <section className='settings-section'>
         <h2>Trainers</h2>
-        <div className="setting-row">
+        <div className='setting-row'>
           <label>Scan Mode</label>
-          <label className="switch">
+          <label className='switch'>
             <input
-              type="checkbox"
+              type='checkbox'
               checked={scanMode}
-              onChange={e => onScanModeChange(e.target.checked)}
+              onChange={(e) => onScanModeChange(e.target.checked)}
             />
-            <span className="slider"></span>
+            <span className='slider'></span>
           </label>
         </div>
-        <p className="setting-hint">
-          Show manual memory scan cheats. Useful as a fallback when automatic address resolution isn't available for a game.
+        <p className='setting-hint'>
+          Show manual memory scan cheats. Useful as a fallback when automatic address resolution
+          isn't available for a game.
         </p>
-        <div className="setting-row">
+        <div className='setting-row'>
           <label>Custom trainer folder</label>
-          <span className="setting-value">public/trainers/</span>
+          <span className='setting-value'>public/trainers/</span>
         </div>
-        <p className="setting-hint">
-          Drop <code>.json</code> trainer files here and add them to <code>index.json</code> to load them automatically.
+        <p className='setting-hint'>
+          Drop <code>.json</code> trainer files here and add them to <code>index.json</code> to load
+          them automatically.
         </p>
       </section>
 
-      <section className="settings-section">
+      <section className='settings-section'>
         <h2>About</h2>
         <p>Magic Wand v1.0</p>
         <p>A free, open-source game trainer built with Tauri + React.</p>

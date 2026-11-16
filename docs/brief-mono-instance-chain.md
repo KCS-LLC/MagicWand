@@ -1,6 +1,7 @@
 # Brief: Mono Instance Chain Traversal
 
 ## Status
+
 Unimplemented.
 
 ## Problem
@@ -8,6 +9,7 @@ Unimplemented.
 The existing `mono` cheat type (brief-mono-reflection.md) only resolves **static fields** — fields stored directly in a class's vtable static data. Many games, including Cell to Singularity, hold their live currency values on a **singleton instance** whose pointer is stored in a static field on the class or its generic base class.
 
 Cell to Singularity's Darwinium is stored at:
+
 ```
 PerfectSingleton<Calculator>.instance   [static field on parent class → Calculator*]
   → Calculator._bank                    [instance field → inline Cry struct]
@@ -41,6 +43,7 @@ Offset  Size  Field
 ```
 
 `Cry.c` is confirmed as Darwinium via the `Calculator.bank` setter:
+
 ```csharp
 if (cry.c > 0.0) {
     Analytics.getSingleton().SetDarwiniumUserProp(value.c);
@@ -49,14 +52,14 @@ if (cry.c > 0.0) {
 
 ### Chain summary
 
-| Step | What                            | How                                        |
-|------|---------------------------------|--------------------------------------------|
-| 1    | Find Calculator MonoClass       | Class hash search (existing)               |
-| 2    | Walk to parent MonoClass        | Read `parent` pointer from MonoClass       |
-| 3    | Find `instance` on parent       | Field search on parent class               |
-| 4    | Read static vtable → ptr value  | Existing vtable traversal → dereference    |
-| 5    | Find `_bank` offset on Calculator | Field search for instance field offset   |
-| 6    | Add struct offset 0x30          | `instance_ptr + _bank_offset + 0x30`       |
+| Step | What                              | How                                     |
+| ---- | --------------------------------- | --------------------------------------- |
+| 1    | Find Calculator MonoClass         | Class hash search (existing)            |
+| 2    | Walk to parent MonoClass          | Read `parent` pointer from MonoClass    |
+| 3    | Find `instance` on parent         | Field search on parent class            |
+| 4    | Read static vtable → ptr value    | Existing vtable traversal → dereference |
+| 5    | Find `_bank` offset on Calculator | Field search for instance field offset  |
+| 6    | Add struct offset 0x30            | `instance_ptr + _bank_offset + 0x30`    |
 
 ---
 
@@ -82,6 +85,7 @@ if (cry.c > 0.0) {
 ```
 
 Fields:
+
 - `monoClass` — class whose parent holds the static singleton pointer
 - `monoStaticField` — name of the static field on the parent that holds the instance pointer (`"instance"`)
 - `monoStaticViaParent` — `true` means read the static field from the parent class, not `monoClass` itself
@@ -223,6 +227,7 @@ fn resolve_mono_chain(
 ```
 
 Register in `invoke_handler`:
+
 ```rust
 resolve_mono_chain,
 ```
@@ -236,10 +241,10 @@ export interface Cheat {
   // ... all existing fields ...
 
   // mono_chain-specific fields:
-  monoStaticField?: string;       // static field on the class (or parent) holding instance ptr
-  monoStaticViaParent?: boolean;  // true = look for static field on parent class
-  monoInstanceField?: string;     // instance field whose offset we add to the instance ptr
-  monoFinalOffset?: number;       // byte offset within value-type struct to the primitive
+  monoStaticField?: string; // static field on the class (or parent) holding instance ptr
+  monoStaticViaParent?: boolean; // true = look for static field on parent class
+  monoInstanceField?: string; // instance field whose offset we add to the instance ptr
+  monoFinalOffset?: number; // byte offset within value-type struct to the primitive
 }
 ```
 
@@ -262,6 +267,7 @@ if (cheat.type === 'mono_chain') {
 ```
 
 Update the `type` union in the `Cheat` interface:
+
 ```typescript
 type: 'toggle' | 'action' | 'patch' | 'scan' | 'mono' | 'mono_chain';
 ```
@@ -289,7 +295,10 @@ In App.tsx, wherever `mono` is checked, extend to include `mono_chain`:
 Add a CSS badge for `mono_chain` in `src/App.css`:
 
 ```css
-.cheat-type-mono_chain { background: #1a1a3a; color: #c4b5fd; }
+.cheat-type-mono_chain {
+  background: #1a1a3a;
+  color: #c4b5fd;
+}
 ```
 
 ### 8. Cell to Singularity trainer — `public/trainers/cell-to-singularity.json`
@@ -343,6 +352,7 @@ If the chain resolves to a wrong address or null:
 3. **Cry.c offset** (`monoFinalOffset: 48`): Double-check by reading the Calculator instance in CE at `instance_ptr + _bank_offset` and confirming a `double` there matches the Darwinium value shown in-game. If not, increment by 8 (one field) until it matches.
 
 A quick validation command — run from Tauri dev console once connected:
+
 ```
 resolve_mono_chain(pid, "mono-2.0-bdwgc.dll", "Assembly-CSharp", "", "Calculator",
   "instance", true, "_bank", 48)
@@ -366,7 +376,7 @@ read_double(pid, <that address>)
 ## Notes
 
 - **`_bank` is a private field** — Mono metadata retains the raw field name regardless of C# access modifiers, so `find_field` will find it by name.
-- **Value type vs reference type**: `_bank` is a `Cry` struct (value type), stored *inline* in the Calculator object — not a heap pointer. This is why we add the field offset directly and then add the struct offset, rather than dereferencing again.
+- **Value type vs reference type**: `_bank` is a `Cry` struct (value type), stored _inline_ in the Calculator object — not a heap pointer. This is why we add the field offset directly and then add the struct offset, rather than dereferencing again.
 - **Null check timing**: If the game is mid-load, the singleton `instance` pointer may be null. The resolver returns a clear error in that case. The frontend should retry on the next poll tick (existing behavior — `addressCache` is not populated on error).
 - **Generic base class name**: In Mono's class hash, `PerfectSingleton<Calculator>` is stored as `PerfectSingleton\`1`. We don't need to search for it by name — we reach it via Calculator's `parent` pointer, which avoids generic class name complexity entirely.
 - **`class_parent` offset verification**: If traversal fails, this is the most likely culprit. Log the parent pointer value and check it against CE's Mono dissector.

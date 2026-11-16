@@ -1,0 +1,160 @@
+{
+  "name": "The Outer Worlds 2",
+  "executable": "TheOuterWorlds2-Win64-Shipping.exe",
+  "cheats": [
+    {
+      "id": "tow2-godmode",
+      "name": "God Mode",
+      "type": "ue5_prop",
+      "valueType": "byte",
+      "module": "TheOuterWorlds2-Win64-Shipping.exe",
+      "ue5GObjectsOffset": 171927000,
+      "ue5GNamesOffset": 173922192,
+      "ue5ClassName": "IndianaPlayerController",
+      "ue5PropertyOffset": 872,
+      "ue5Offsets": [6112, 1048],
+      "ue5NoCache": true,
+      "ue5CustomLayout": {
+        "fuobjectitem_size": 24,
+        "fuobjectitem_object": 0,
+        "uobject_class": 16,
+        "uobject_name": 24,
+        "gobjects_chunk_size": 65536,
+        "gobjects_objects": 0,
+        "gobjects_num_elements": 12,
+        "fname_stride": 2,
+        "fname_entry_header": 2,
+        "gnames_chunk_size": 131072,
+        "gobjects_chunked": false
+      },
+      "offsets": [],
+      "onValue": 1,
+      "offValue": 0
+    },
+    {
+      "id": "tow2-money",
+      "name": "Money",
+      "type": "action",
+      "valueType": "int",
+      "module": "TheOuterWorlds2-Win64-Shipping.exe",
+      "ue5GObjectsOffset": 171927000,
+      "ue5GNamesOffset": 173922192,
+      "ue5ClassName": "IndianaPlayerController",
+      "ue5PropertyOffset": 872,
+      "ue5Offsets": [6096],
+      "ue5ArrayOffset": 448,
+      "ue5ArrayItemStride": 24,
+      "ue5ArrayItemPtrOffset": 0,
+      "ue5ArrayMatchClass": "CurrencyItem",
+      "ue5ArrayValueOffset": 8,
+      "ue5CustomLayout": {
+        "fuobjectitem_size": 24,
+        "fuobjectitem_object": 0,
+        "uobject_class": 16,
+        "uobject_name": 24,
+        "gobjects_chunk_size": 65536,
+        "gobjects_objects": 0,
+        "gobjects_num_elements": 12,
+        "fname_stride": 2,
+        "fname_entry_header": 2,
+        "gnames_chunk_size": 131072,
+        "gobjects_chunked": false
+      },
+      "offsets": [],
+      "onValue": 9999999
+    },
+    {
+      "id": "tow2-damage-multiplier",
+      "name": "Damage Multiplier",
+      "type": "ue5_prop",
+      "valueType": "float",
+      "module": "TheOuterWorlds2-Win64-Shipping.exe",
+      "ue5GObjectsOffset": 171927000,
+      "ue5GNamesOffset": 173922192,
+      "ue5ClassName": "IndianaPlayerController",
+      "ue5PropertyOffset": 872,
+      "ue5Offsets": [6104, 1328, 7696, 280],
+      "ue5NoCache": true,
+      "ue5CustomLayout": {
+        "fuobjectitem_size": 24,
+        "fuobjectitem_object": 0,
+        "uobject_class": 16,
+        "uobject_name": 24,
+        "gobjects_chunk_size": 65536,
+        "gobjects_objects": 0,
+        "gobjects_num_elements": 12,
+        "fname_stride": 2,
+        "fname_entry_header": 2,
+        "gnames_chunk_size": 131072,
+        "gobjects_chunked": false
+      },
+      "offsets": [],
+      "onValue": 5000,
+      "_comment": "Replaces the earlier GetBaseDamage()-hook code_cave (2026-09-25), which multiplied ALL damage through that shared function, including damage dealt TO the player by enemies (confirmed live: one-shot-killed). This is a per-instance property write instead, chained straight to the player's own currently-equipped weapon, so it structurally cannot touch enemy damage - same pattern as BL4's One Hit Kill (DamageDealtMultiplier). Chain confirmed against the real Dumper-7 SDK dump (Arkansas_classes.hpp), not a live guess: IndianaPlayerController -> +0x368 (872, AController::Pawn, deref) -> +0x17D8 (6104, AIndianaPlayerCharacter::PlayerEquipmentComponent, deref) -> +0x530 (1328, UEquipmentComponent::EquippedWeapon, deref) -> +0x1E10 (7696, UWeapon::PrimaryMode, deref) -> +0x118 (280, WeaponMode BaseDamage float, final - not deref'd). Live-verified 2026-09-25: resolved to a real weapon (Weapon_PI_Standard_Unique_C / FireMode_Handgun_C) with BaseDamage=19.0, matching the two fields (+0x118/+0x178) GetBaseDamage() itself was independently disassembled as reading. onValue 5000 is a flat override (this field is set, not scaled, unlike the old multiplicative cave) - tune via the custom-value input if 5000 is too strong/weak. NOT yet toggled live through the app - verify via the UI before considering this fixed. Re-equipping/switching weapons re-resolves the chain to the new weapon on the next poll tick, same as any other ue5_prop cheat."
+    },
+    {
+      "id": "tow2-unlimited-ammo",
+      "name": "Unlimited Ammo",
+      "type": "patch",
+      "module": "TheOuterWorlds2-Win64-Shipping.exe",
+      "base": "0x1845E91",
+      "offsets": [],
+      "onValue": 0,
+      "onBytes": [144, 144],
+      "offBytes": [43, 200],
+      "_comment": "NOPs the actual ammo-decrement instruction (2026-09-26), found via Dumper-7 reflection data rather than a WeMod AOB guess (the earlier 'Site 1' WeMod-derived investigation in memory turned out to be a display getter, not the real decrement). UAmmoPoolBase::ConsumeAmmo(int32 Amount) is Native|BlueprintCallable; Dumper-7's Dumpspace/FunctionsInfo.json records its exec-thunk native pointer directly (87699808 decimal = RVA 0x53A3160) - but that thunk (execConsumeAmmo) is just a generic Kismet-bytecode-param-decoder that then makes a VIRTUAL call through the ammo pool instance's own vtable+0x300 to the real per-subclass implementation (UAmmoPoolBase has 5 subclasses: Standard/Consumable/SpawnPooledActor/SpellManaged/Inventory - each could have its own override). Resolved live for the player's actual equipped weapon's AmmoPool (Pawn->PlayerEquipmentComponent(+0x17D8)->EquippedWeapon(+0x530)->AmmoPool(+0x1E38), a UStandardAmmoPool instance) -> read its vtable -> vtable+0x300 -> disassembled that address (RVA 0x1845E18). Found: ecx=CurrentPoolSize loaded from [this+0x140], eax=Amount(rounded via float roundtrip), then at RVA 0x1845E91 `sub ecx,eax` (bytes 2B C8) computes the decremented value, followed by a cmovns clamp-to-zero and a writeback to [this+0x140]. Verified this+0x140 == 16 live, matching the exact loaded-ammo count reported in-game at the time. NOPing just these 2 bytes leaves ecx (the original, undecremented pool size) intact; the subsequent cmovns still fires normally off the preceding `sar eax,1` instruction's flags (Amount is always non-negative in practice, so SF stays 0), so the pool size gets written back to itself unchanged every time ConsumeAmmo runs - net effect: ammo never drops. This is a FIXED CODE RVA (real compiled function, not a per-instance heap pointer), so unlike the ue5_prop cheats it needs no chain/caching at all and is immune to the death/reload staleness issues those hit. SCOPE: only covers weapons using UStandardAmmoPool (the currently-equipped weapon's class, and almost certainly most standard ballistic guns) - other pool subclasses (energy weapons, grenade launchers, special consumables, etc.) have their own separate ConsumeAmmo override at a different address and would need their own patch site if a user notices a specific weapon type still consuming ammo. NOT yet toggle-tested live through the app - verify via the UI (fire the equipped weapon repeatedly, confirm the loaded count stays at 16) before considering this confirmed."
+    },
+    {
+      "id": "tow2-xp-multiplier",
+      "name": "XP Multiplier",
+      "type": "code_cave",
+      "module": "TheOuterWorlds2-Win64-Shipping.exe",
+      "offsets": [],
+      "onValue": 0,
+      "sliderOptions": [1, 2, 3, 5],
+      "caveSites": [
+        {
+          "_comment": "Mechanism extracted from WeMod's live-attached CE script (Trainer_49038_163ccb59f0.dll, 2026-09-26), then independently re-verified: WeMod's own AOB pattern (45 * * 8B FA 48 8B D9 85 D2 7F * 32 C0) matched exactly once live, at the real function's XP-grant entry (a general 'grant this much XP' chokepoint - edx=Amount, checked >0 before anything else, then a level-cap check via a virtual call before the value is ever used). The 5-byte patch site (aobexp+3 per WeMod's own convention) is `mov edi,edx` + `mov rbx,rcx` (8B FA 48 8B D9) at RVA 0x139E05C. Cave: if Amount>0, round-trips edx through the x87 stack multiplying by an embedded float constant (fmul, not the shared helper the game's own difficulty-scalar path uses a few instructions later - deliberately independent so this can't interact with a difficulty setting), writing the scaled amount back into edx before falling through to the original 2 instructions (now scaled). No player-ownership check needed/present (WeMod's own script has none either) - this appears to be a dedicated single-purpose add-XP entry point, not a shared multi-actor function like the old damage bug. `sliderOptions: [1,2,3,5]` (frontend addition, 2026-09-26) drives a stepped slider instead of a plain toggle: selecting 1 uninstalls the cave entirely (true vanilla, not 'multiply by 1'); selecting 2/3/5 installs the cave if not already active and writes that value as a live f32 into `valueScratchOffset` (26, the last 4 bytes of cavePayload) via a plain write_float - no reinstall needed to change the value while already on. CRASH FIX (2026-09-26, same day): the first version of this payload had no jump between the last real instruction (`mov rbx,rcx`) and the embedded float constant - execution fell straight off the end of the real code into the constant's raw bytes as if they were more instructions, then into whatever garbage followed, before ever reaching the engine's auto-appended return jump. Crashed the game on first real use (killing an enemy while this cheat was on). Fixed by adding an explicit `jmp` (EB 04) right after `mov rbx,rcx` that jumps past the 4-byte constant to land exactly on the engine's own appended jump-back - the same lesson as the old superseded damage cave, which avoided this by happening to end in a genuine `ret` instead of falling through. Deliberately does NOT replicate WeMod's separate `[exp]==1` flat-99999999-override branch (the 'stupid high, near-instant-max' behavior the user explicitly did not want) - only the clean multiplicative scaling path is ported, and only ever to modest values. SCOPE CAVEAT: WeMod's script documented a SECOND near-identical call site (8B F2 variant, using esi instead of edi) that did not exist anywhere in this live build (0 matches even with a loosened, prefix-free search) - only this one site is patched, so if XP still sometimes grants at the normal rate (e.g. from a different reward source), that second path may need independent re-derivation. NOT yet toggle-tested live - verify by killing something/completing an objective with this cheat on 2x/3x/5x and confirming XP gained scales accordingly.",
+          "patchSite": "0x139E05C",
+          "patchLen": 5,
+          "cavePayload": [131, 250, 0, 126, 14, 82, 219, 4, 36, 216, 13, 11, 0, 0, 0, 219, 28, 36, 90, 139, 250, 72, 139, 217, 235, 4, 0, 0, 64, 64],
+          "valueScratchOffset": 26
+        }
+      ]
+    },
+    {
+      "id": "tow2-fly-mode",
+      "name": "Fly Mode",
+      "type": "code_cave",
+      "module": "TheOuterWorlds2-Win64-Shipping.exe",
+      "ue5GObjectsOffset": 171927000,
+      "ue5GNamesOffset": 173922192,
+      "ue5ClassName": "IndianaPlayerController",
+      "ue5PropertyOffset": 872,
+      "ue5CustomLayout": {
+        "fuobjectitem_size": 24,
+        "fuobjectitem_object": 0,
+        "uobject_class": 16,
+        "uobject_name": 24,
+        "gobjects_chunk_size": 65536,
+        "gobjects_objects": 0,
+        "gobjects_num_elements": 12,
+        "fname_stride": 2,
+        "fname_entry_header": 2,
+        "gnames_chunk_size": 131072,
+        "gobjects_chunked": false
+      },
+      "offsets": [],
+      "onValue": 0,
+      "caveSites": [
+        {
+          "_comment": "Mechanism extracted from WeMod's live-attached CE script (aobflymode), then independently re-verified - the exact original bytes were only visible after fully detaching WeMod, since its own hook was live-installed over this same site at read time (confirmed by seeing a jmp+nop pair in place of the expected instruction, which reverted to the pristine bytes once WeMod detached). Real original instruction (patchSite RVA 0x1167D3E, patchLen 6): `8A 83 91 02 00 00` = mov al,[rbx+0x291] - rbx here is the character's movement component, +0x291 is the MovementMode byte (standard Unreal enum: 1=Walking, 5=Flying; the surrounding code immediately does `cmp al,6` / `cmp al,3`, consistent with a movement-mode dispatch). WeMod's own script gates this with a player-ownership check ([rbx+0x20]==player pawn, same UObject::Outer-at-+0x20 idiom already validated for the weapon-damage fix) since this code path is shared with AI-controlled characters' movement components - reused verbatim here via this project's existing playerPtrScratchOffset mechanism (top-level ue5* fields resolve the live player Pawn pointer, refreshed into the cave's own scratch qword every poll tick, same pattern the old superseded damage-multiplier cave used). Cave: if [rbx+0x20] matches the live player pawn, force-write 5 (Flying) to [rbx+0x291]; otherwise re-emit the original instruction verbatim for every other (AI) character using this same code path. No noclip/collision changes - standard UE Flying mode keeps world collision and uses the game's own existing jump/crouch inputs for ascend/descend, no new hotkey needed. Cave install/removal alone is the on/off state, unlike WeMod's own permanently-hooked+internal-flag design (also means turning this off mid-air lets gravity/falling resume immediately, same as any UE flying cheat - pair with God Mode if fall damage from turning it off high up is a concern). CRASH-RISK FIX (2026-09-26, same day as the XP cave crash): this cave had the identical bug - both the player-match path and the not-player path converged and fell straight through into the appended 8-byte scratch qword as if it were code, before ever reaching the engine's auto-appended return jump. Never actually toggled on (the XP cave crashed the game first), but would have crashed exactly the same way the moment the hooked instruction executed at all. Fixed by adding an explicit `jmp` (EB 08) at the convergence point that jumps past the scratch qword to land exactly on the engine's own appended jump-back. NOT yet toggle-tested live - verify by toggling on, confirming the character can ascend/descend freely via jump/crouch while retaining wall/floor collision, then toggling off and confirming normal gravity resumes.",
+          "patchSite": "0x1167D3E",
+          "patchLen": 6,
+          "cavePayload": [72, 139, 67, 32, 72, 59, 5, 19, 0, 0, 0, 117, 9, 198, 131, 145, 2, 0, 0, 5, 235, 6, 138, 131, 145, 2, 0, 0, 235, 8, 0, 0, 0, 0, 0, 0, 0, 0],
+          "playerPtrScratchOffset": 30
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,730 @@
+{
+  "name": "Outward",
+  "executable": "Outward Definitive Edition.exe",
+  "cheats": [
+    {
+      "id": "ow-silver",
+      "name": "Set Silver",
+      "type": "action",
+      "valueType": "int",
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_inventory"
+        },
+        {
+          "kind": "field",
+          "className": "CharacterInventory",
+          "field": "m_inventoryPouch"
+        },
+        {
+          "kind": "field",
+          "className": "ItemContainer",
+          "field": "m_silverCount"
+        }
+      ],
+      "offsets": [],
+      "onValue": 99999
+    },
+    {
+      "id": "ow-food",
+      "name": "Set Food",
+      "type": "action",
+      "valueType": "float",
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "PlayerCharacterStats",
+          "field": "m_food"
+        }
+      ],
+      "offsets": [],
+      "onValue": 1000
+    },
+    {
+      "id": "ow-drink",
+      "name": "Set Drink",
+      "type": "action",
+      "valueType": "float",
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "PlayerCharacterStats",
+          "field": "m_drink"
+        }
+      ],
+      "offsets": [],
+      "onValue": 1000
+    },
+    {
+      "id": "ow-sleep",
+      "name": "Set Sleep",
+      "type": "action",
+      "valueType": "float",
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "PlayerCharacterStats",
+          "field": "m_sleep"
+        }
+      ],
+      "offsets": [],
+      "onValue": 1000
+    },
+    {
+      "id": "ow-invincible",
+      "name": "Invincibility",
+      "type": "il2cpp_method_ret",
+      "module": "GameAssembly.dll",
+      "il2cppMethod": {
+        "className": "CharacterStats",
+        "method": "ReceiveDamage"
+      },
+      "offsets": []
+    },
+    {
+      "id": "ow-food-lock",
+      "name": "Lock Food at 100%",
+      "type": "il2cpp_decay_nop",
+      "valueType": "float",
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "PlayerCharacterStats",
+          "field": "m_food"
+        }
+      ],
+      "il2cppMethod": {
+        "className": "PlayerCharacterStats",
+        "method": "UpdateNeeds"
+      },
+      "il2cppDecay": {
+        "className": "PlayerCharacterStats",
+        "field": "m_food"
+      },
+      "offsets": [],
+      "onValue": 1000
+    },
+    {
+      "id": "ow-drink-lock",
+      "name": "Lock Drink at 100%",
+      "type": "il2cpp_decay_nop",
+      "valueType": "float",
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "PlayerCharacterStats",
+          "field": "m_drink"
+        }
+      ],
+      "il2cppMethod": {
+        "className": "PlayerCharacterStats",
+        "method": "UpdateNeeds"
+      },
+      "il2cppDecay": {
+        "className": "PlayerCharacterStats",
+        "field": "m_drink"
+      },
+      "offsets": [],
+      "onValue": 1000
+    },
+    {
+      "id": "ow-sleep-lock",
+      "name": "Lock Sleep at 100%",
+      "type": "il2cpp_decay_nop",
+      "valueType": "float",
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "PlayerCharacterStats",
+          "field": "m_sleep"
+        }
+      ],
+      "il2cppMethod": {
+        "className": "PlayerCharacterStats",
+        "method": "UpdateNeeds"
+      },
+      "il2cppDecay": {
+        "className": "PlayerCharacterStats",
+        "field": "m_sleep"
+      },
+      "offsets": [],
+      "onValue": 1000
+    },
+    {
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "offsets": [],
+      "id": "ow-stamina-lock",
+      "name": "Unlimited Stamina",
+      "type": "il2cpp_decay_nop",
+      "valueType": "float",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "CharacterStats",
+          "field": "m_stamina"
+        }
+      ],
+      "il2cppValuePath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "CharacterStats",
+          "field": "m_maxStamina"
+        },
+        {
+          "kind": "offset",
+          "offset": 20
+        }
+      ],
+      "il2cppMethods": [
+        {
+          "className": "CharacterStats",
+          "method": "UseStamina"
+        },
+        {
+          "className": "CharacterStats",
+          "method": "UpdateVitalStats"
+        }
+      ],
+      "il2cppDecay": {
+        "className": "CharacterStats",
+        "field": "m_stamina"
+      },
+      "onValue": 100
+    },
+    {
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "offsets": [],
+      "id": "ow-mana-lock",
+      "name": "Unlimited Mana",
+      "type": "il2cpp_decay_nop",
+      "valueType": "float",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "CharacterStats",
+          "field": "m_mana"
+        }
+      ],
+      "il2cppValuePath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "CharacterStats",
+          "field": "m_maxManaStat"
+        },
+        {
+          "kind": "offset",
+          "offset": 20
+        }
+      ],
+      "il2cppMethods": [
+        {
+          "className": "CharacterStats",
+          "method": "UseMana"
+        }
+      ],
+      "il2cppDecay": {
+        "className": "CharacterStats",
+        "field": "m_mana"
+      },
+      "onValue": 0
+    },
+    {
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "offsets": [],
+      "id": "ow-no-burnt",
+      "name": "No Burnt Health/Stamina/Mana",
+      "type": "il2cpp_method_ret",
+      "il2cppMethods": [
+        {
+          "className": "CharacterStats",
+          "method": "IncreaseBurntHealth"
+        },
+        {
+          "className": "CharacterStats",
+          "method": "IncreaseBurntStamina"
+        },
+        {
+          "className": "CharacterStats",
+          "method": "IncreaseBurntMana"
+        }
+      ]
+    },
+    {
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "offsets": [],
+      "id": "ow-no-cooldowns",
+      "name": "No Skill Cooldowns",
+      "type": "il2cpp_method_ret",
+      "il2cppMethods": [
+        {
+          "className": "Skill",
+          "method": "StartCooldown"
+        }
+      ]
+    },
+    {
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "offsets": [],
+      "id": "ow-clear-burnt-health",
+      "name": "Clear Burnt Health",
+      "type": "action",
+      "valueType": "float",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "CharacterStats",
+          "field": "m_burntHealth"
+        }
+      ],
+      "onValue": 0
+    },
+    {
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "offsets": [],
+      "id": "ow-clear-burnt-stamina",
+      "name": "Clear Burnt Stamina",
+      "type": "action",
+      "valueType": "float",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "CharacterStats",
+          "field": "m_burntStamina"
+        }
+      ],
+      "onValue": 0
+    },
+    {
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "offsets": [],
+      "id": "ow-clear-burnt-mana",
+      "name": "Clear Burnt Mana",
+      "type": "action",
+      "valueType": "float",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "CharacterStats",
+          "field": "m_burntMana"
+        }
+      ],
+      "onValue": 0
+    },
+    {
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "offsets": [],
+      "id": "ow-breakthrough",
+      "name": "Set Breakthrough Points Used",
+      "type": "action",
+      "valueType": "int",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "field",
+          "className": "Character",
+          "field": "m_characterStats"
+        },
+        {
+          "kind": "field",
+          "className": "PlayerCharacterStats",
+          "field": "m_usedBreakthroughCount"
+        }
+      ],
+      "onValue": 0
+    },
+    {
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "offsets": [],
+      "id": "ow-indestructible",
+      "name": "Indestructible Equipment",
+      "type": "toggle",
+      "valueType": "byte",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "offset",
+          "offset": 49
+        }
+      ],
+      "onValue": 1,
+      "offValue": 0
+    },
+    {
+      "module": "GameAssembly.dll",
+      "il2cppClass": "CharacterManager",
+      "il2cppStaticField": "Instance",
+      "offsets": [],
+      "id": "ow-no-weight",
+      "name": "No Weight Penalty",
+      "type": "toggle",
+      "valueType": "byte",
+      "il2cppPath": [
+        {
+          "kind": "field",
+          "className": "CharacterManager",
+          "field": "m_characters"
+        },
+        {
+          "kind": "offset",
+          "offset": 24
+        },
+        {
+          "kind": "listFindByte",
+          "className": "Character",
+          "field": "m_isAI",
+          "equals": 0
+        },
+        {
+          "kind": "offset",
+          "offset": 51
+        }
+      ],
+      "onValue": 1,
+      "offValue": 0
+    }
+  ]
+}

@@ -1,12 +1,15 @@
 # Brief: Runtime Value Scanner
 
 ## Status
+
 Unimplemented.
 
 ## Problem
+
 Magic Wand currently requires a fixed AOB signature or pointer chain to locate a value in memory. This works well for native C++ games (Skyrim, etc.) where addresses are stable. It does not work for Unity/C# games like Cell to Singularity, where all game values live in the Mono garbage-collected heap — a region that relocates entirely on every game launch. No static pointer chain survives a restart, so there is nothing to put in a trainer JSON.
 
 ## Goal
+
 Add a `"scan"` cheat type that locates a value at runtime by scanning the process's memory for it, the same way Cheat Engine's basic scan works. The user enters what their current value is, Magic Wand finds the address live, then writes the target value. The found address is cached for the rest of the session.
 
 This makes Magic Wand capable of targeting any game that stores numeric values in readable memory, regardless of engine.
@@ -124,6 +127,7 @@ fn scan_value(pid: u32, value_type: String, value: f64) -> Result<Vec<String>, S
 ```
 
 Register in `invoke_handler`:
+
 ```rust
 scan_value,
 ```
@@ -161,6 +165,7 @@ const [scanInputs, setScanInputs] = useState<Record<string, string>>({});
 ```
 
 Reset both when changing games:
+
 ```typescript
 // In handleGameClick / selectGame, also call:
 setScanStates({});
@@ -177,13 +182,12 @@ const handleScan = async (cheat: Cheat) => {
   const currentValueStr = scanInputs[cheat.id];
   if (!currentValueStr) return;
 
-  const value = cheat.valueType === 'int'
-    ? parseInt(currentValueStr, 10)
-    : parseFloat(currentValueStr);
+  const value =
+    cheat.valueType === 'int' ? parseInt(currentValueStr, 10) : parseFloat(currentValueStr);
 
   if (isNaN(value)) return;
 
-  setScanStates(prev => ({ ...prev, [cheat.id]: { status: 'scanning', addresses: [] } }));
+  setScanStates((prev) => ({ ...prev, [cheat.id]: { status: 'scanning', addresses: [] } }));
 
   try {
     const addresses = await invoke<string[]>('scan_value', {
@@ -193,14 +197,17 @@ const handleScan = async (cheat: Cheat) => {
     });
 
     if (addresses.length === 0) {
-      setScanStates(prev => ({ ...prev, [cheat.id]: { status: 'not_found', addresses: [] } }));
+      setScanStates((prev) => ({ ...prev, [cheat.id]: { status: 'not_found', addresses: [] } }));
     } else if (addresses.length === 1) {
-      setScanStates(prev => ({ ...prev, [cheat.id]: { status: 'found', addresses, cachedAddress: addresses[0] } }));
+      setScanStates((prev) => ({
+        ...prev,
+        [cheat.id]: { status: 'found', addresses, cachedAddress: addresses[0] },
+      }));
     } else {
-      setScanStates(prev => ({ ...prev, [cheat.id]: { status: 'multiple', addresses } }));
+      setScanStates((prev) => ({ ...prev, [cheat.id]: { status: 'multiple', addresses } }));
     }
   } catch (err) {
-    setScanStates(prev => ({ ...prev, [cheat.id]: { status: 'not_found', addresses: [] } }));
+    setScanStates((prev) => ({ ...prev, [cheat.id]: { status: 'not_found', addresses: [] } }));
   }
 };
 
@@ -209,9 +216,12 @@ const handleScanWrite = async (cheat: Cheat) => {
   const state = scanStates[cheat.id];
   if (!state?.cachedAddress) return;
 
-  const cmd = cheat.valueType === 'double' ? 'write_double'
-            : cheat.valueType === 'float'  ? 'write_float'
-            : 'write_int';
+  const cmd =
+    cheat.valueType === 'double'
+      ? 'write_double'
+      : cheat.valueType === 'float'
+        ? 'write_float'
+        : 'write_int';
   await invoke(cmd, { pid, address: state.cachedAddress, value: cheat.onValue });
 };
 ```
@@ -323,6 +333,7 @@ Once this is implemented, create `public/trainers/cell-to-singularity.json`:
 ```
 
 User flow:
+
 1. Open Magic Wand → select Cell to Singularity
 2. Note current Darwinium amount (e.g. `47`)
 3. Type `47` in the scan input → click **Scan**
@@ -330,6 +341,7 @@ User flow:
 5. Once found: click **Set to 1000**
 
 ## Acceptance Criteria
+
 - `scan_value` Tauri command returns correct addresses for a known double value in a live process
 - Scan cheat UI shows scanning state, found/multiple/not-found feedback
 - "Set to 1000" button appears only after a single address is confirmed
@@ -339,6 +351,7 @@ User flow:
 - Existing cheat types (toggle, action, patch) are unaffected
 
 ## Notes
+
 - The 512 MB region cap in `scan_memory_for_bytes` skips pathological regions. Lower it to 256 MB if scans are too slow.
 - `f64::to_le_bytes()` on a whole number like `47.0` produces a specific 8-byte pattern. Even one Darwinium decimal (e.g. `47.3`) will not match a scan for `47.0` — the user must enter their exact current value. Consider displaying a note in the UI: "Enter the exact whole number shown in-game."
 - This feature intentionally does NOT persist the address between game sessions — that is the correct behavior for managed-heap games.

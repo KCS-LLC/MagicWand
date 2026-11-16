@@ -1,6 +1,7 @@
 # Brief: Polling-Write Toggle Cheats
 
 ## Status
+
 Unimplemented.
 
 ## Problem
@@ -33,7 +34,11 @@ It does **not** change `action`, `patch`, `scan`, `mono`, or `mono_chain` cheats
 Today the non-patch toggle branch writes on every click regardless of direction. Skip the write when the new active state is `false`:
 
 ```typescript
-const applyCheat = async (cheat: Cheat, customValueStr?: string, onError?: (id: string, msg: string) => void) => {
+const applyCheat = async (
+  cheat: Cheat,
+  customValueStr?: string,
+  onError?: (id: string, msg: string) => void,
+) => {
   if (!pid || !activeGame) return;
 
   if (cheat.type === 'action' || cheat.type === 'mono' || cheat.type === 'mono_chain') {
@@ -42,28 +47,37 @@ const applyCheat = async (cheat: Cheat, customValueStr?: string, onError?: (id: 
   }
 
   const willBeActive = !cheat.active;
-  setActiveGame(prev => {
+  setActiveGame((prev) => {
     if (!prev) return null;
-    return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: willBeActive } : c) };
+    return {
+      ...prev,
+      cheats: prev.cheats.map((c) => (c.id === cheat.id ? { ...c, active: willBeActive } : c)),
+    };
   });
   try {
     const addr = await resolveCheatAddress(cheat);
-    const hexAddr = "0x" + BigInt(addr).toString(16);
+    const hexAddr = '0x' + BigInt(addr).toString(16);
     if (cheat.type === 'patch') {
       const bytes = !cheat.active ? cheat.onBytes : cheat.offBytes;
       await invoke('patch_bytes', { pid, address: hexAddr, bytes });
     } else if (willBeActive) {
       // Only write on toggle-on. Toggle-off just stops the poll loop from re-asserting.
       const writeValue = resolveWriteValue(cheat, customValueStr);
-      const cmd = cheat.valueType === 'double' ? 'write_double'
-                : cheat.valueType === 'float'  ? 'write_float'
-                : 'write_int';
+      const cmd =
+        cheat.valueType === 'double'
+          ? 'write_double'
+          : cheat.valueType === 'float'
+            ? 'write_float'
+            : 'write_int';
       await invoke(cmd, { pid, address: hexAddr, value: writeValue });
     }
   } catch (err) {
-    setActiveGame(prev => {
+    setActiveGame((prev) => {
       if (!prev) return null;
-      return { ...prev, cheats: prev.cheats.map(c => c.id === cheat.id ? { ...c, active: !willBeActive } : c) };
+      return {
+        ...prev,
+        cheats: prev.cheats.map((c) => (c.id === cheat.id ? { ...c, active: !willBeActive } : c)),
+      };
     });
     onError?.(cheat.id, err instanceof Error ? err.message : String(err));
   }
@@ -77,29 +91,37 @@ The existing catch already reverts the optimistic state flip on error — keep i
 Inside the existing `setInterval` callback, for each cheat resolve the address, and **if the cheat is an active non-patch toggle, write `onValue` before reading**:
 
 ```typescript
-const results = await Promise.all(currentActive.cheats.map(async (cheat) => {
-  try {
-    const addr = await resolveCheatAddress(cheat);
-    const hexAddr = "0x" + BigInt(addr).toString(16);
+const results = await Promise.all(
+  currentActive.cheats.map(async (cheat) => {
+    try {
+      const addr = await resolveCheatAddress(cheat);
+      const hexAddr = '0x' + BigInt(addr).toString(16);
 
-    // Re-assert active toggle cheats (skip patch — those toggle bytes, not values)
-    if (cheat.type === 'toggle' && cheat.active && cheat.valueType) {
-      const writeCmd = cheat.valueType === 'double' ? 'write_double'
-                     : cheat.valueType === 'float'  ? 'write_float'
-                     : 'write_int';
-      await invoke(writeCmd, { pid: pidRef.current, address: hexAddr, value: cheat.onValue });
+      // Re-assert active toggle cheats (skip patch — those toggle bytes, not values)
+      if (cheat.type === 'toggle' && cheat.active && cheat.valueType) {
+        const writeCmd =
+          cheat.valueType === 'double'
+            ? 'write_double'
+            : cheat.valueType === 'float'
+              ? 'write_float'
+              : 'write_int';
+        await invoke(writeCmd, { pid: pidRef.current, address: hexAddr, value: cheat.onValue });
+      }
+
+      const readCmd =
+        cheat.valueType === 'double'
+          ? 'read_double'
+          : cheat.valueType === 'float'
+            ? 'read_float'
+            : 'read_int';
+      const val = await invoke<number>(readCmd, { pid: pidRef.current, address: hexAddr });
+      return { id: cheat.id, val };
+    } catch (e) {
+      onCheatError?.(cheat.id, e instanceof Error ? e.message : String(e));
+      return { id: cheat.id, val: '???' };
     }
-
-    const readCmd = cheat.valueType === 'double' ? 'read_double'
-                  : cheat.valueType === 'float'  ? 'read_float'
-                  : 'read_int';
-    const val = await invoke<number>(readCmd, { pid: pidRef.current, address: hexAddr });
-    return { id: cheat.id, val };
-  } catch (e) {
-    onCheatError?.(cheat.id, e instanceof Error ? e.message : String(e));
-    return { id: cheat.id, val: '???' };
-  }
-}));
+  }),
+);
 ```
 
 Note: the read still happens after the write, so the displayed `currentValue` reflects what we just wrote (good signal to the user that the cheat is sticking).

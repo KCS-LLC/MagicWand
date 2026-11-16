@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
+default-run = "magic-wand"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -23,6 +24,7 @@ tauri-plugin-opener = "2"
 tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+memchr = "2"
 sysinfo = "0.33"
 winreg = "0.52"
 windows = { version = "0.59", features = [
@@ -31,5 +33,15 @@ windows = { version = "0.59", features = [
     "Win32_System_Memory",
     "Win32_System_Threading",
     "Win32_System_ProcessStatus",
+    "Win32_System_LibraryLoader",
+    "Win32_Security",
 ] }
 
+
+# Whole-process memory searches are too slow with an unoptimized memchr.
+[profile.dev.package.memchr]
+opt-level = 3
+
+# Godot member lookup scans the whole process; unoptimized that takes ~50s.
+[profile.dev.package.magic-wand]
+opt-level = 2

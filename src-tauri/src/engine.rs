@@ -321,11 +321,104 @@ pub fn set_bit_at(pid: u32, address: usize, bit: u8, set: bool) -> Result<(), St
     write_memory_raw(pid, address, &[byte])
 }
 
+/// Streaming scan for an 8-byte-aligned u64 across all committed, readable, non-executable
+/// memory. Unlike `scan_memory_for_bytes` it never holds more than one chunk in memory and
+/// compares one u64 per 8 bytes, so it's practical on multi-GB game processes. Only finds
+/// values stored at 8-byte-aligned addresses (true for pointers in structs).
+pub fn scan_aligned_u64(pid: u32, value: u64) -> Vec<usize> {
+    const CHUNK: usize = 8 * 1024 * 1024;
+    let handle = match ProcessHandle::open(pid) {
+        Ok(h) => h,
+        Err(_) => return Vec::new(),
+    };
+    let exec_mask = PAGE_EXECUTE_READ.0 | PAGE_EXECUTE_READWRITE.0 | 0x10u32 | 0x80u32;
+    let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
+    let needle = value.to_le_bytes();
+    let mut hits = Vec::new();
+    let mut addr: usize = 0;
+
+    unsafe {
+        loop {
+            let mut mbi = MEMORY_BASIC_INFORMATION::default();
+            if VirtualQueryEx(handle.0, Some(addr as *const _), &mut mbi,
+                std::mem::size_of::<MEMORY_BASIC_INFORMATION>()) == 0 { break; }
+            let region_base = mbi.BaseAddress as usize;
+            let region_end = region_base.saturating_add(mbi.RegionSize);
+            addr = region_end;
+
+            let scannable = mbi.State == MEM_COMMIT
+                && (mbi.Protect.0 & unreadable) == 0
+                && (mbi.Protect.0 & exec_mask) == 0;
+            if scannable {
+                let mut pos = region_base;
+                while pos < region_end {
+                    let len = CHUNK.min(region_end - pos);
+                    if let Ok(data) = read_memory_raw(handle.0, pos, len) {
+                        let mut i = 0;
+                        while i + 8 <= data.len() {
+                            if data[i..i + 8] == needle {
+                                hits.push(pos + i);
+                            }
+                            i += 8;
+                        }
+                    }
+                    pos += len;
+                }
+            }
+            if addr == 0 { break; }
+        }
+    }
+    hits
+}
+
+/// Streaming search for an arbitrary byte sequence across all committed, readable,
+/// non-executable memory, reading in chunks (with overlap so matches spanning a chunk edge
+/// aren't missed). Unlike `scan_memory_for_bytes` it never holds the whole process in memory.
+pub fn scan_bytes_streaming(pid: u32, needle: &[u8]) -> Vec<usize> {
+    const CHUNK: usize = 16 * 1024 * 1024;
+    if needle.is_empty() { return Vec::new(); }
+    let handle = match ProcessHandle::open(pid) { Ok(h) => h, Err(_) => return Vec::new() };
+    let exec_mask = PAGE_EXECUTE_READ.0 | PAGE_EXECUTE_READWRITE.0 | 0x10u32 | 0x80u32;
+    let unreadable = PAGE_NOACCESS.0 | PAGE_GUARD.0;
+    let finder = memchr::memmem::Finder::new(needle);
+    let overlap = needle.len() - 1;
+    let mut hits = Vec::new();
+    let mut addr: usize = 0;
+    unsafe {
+        loop {
+            let mut mbi = MEMORY_BASIC_INFORMATION::default();
+            if VirtualQueryEx(handle.0, Some(addr as *const _), &mut mbi,
+                std::mem::size_of::<MEMORY_BASIC_INFORMATION>()) == 0 { break; }
+            let region_base = mbi.BaseAddress as usize;
+            let region_end = region_base.saturating_add(mbi.RegionSize);
+            addr = region_end;
+            if mbi.State == MEM_COMMIT && (mbi.Protect.0 & unreadable) == 0 && (mbi.Protect.0 & exec_mask) == 0 {
+                let mut pos = region_base;
+                while pos < region_end {
+                    let len = (CHUNK + overlap).min(region_end - pos);
+                    if let Ok(data) = read_memory_raw(handle.0, pos, len) {
+                        for i in finder.find_iter(&data) {
+                            // A match starting inside the overlap tail is found again as the
+                            // next chunk's first bytes; keep only matches starting in this chunk.
+                            if i < CHUNK { hits.push(pos + i); }
+                        }
+                    }
+                    pos += CHUNK.min(region_end - pos);
+                }
+            }
+            if addr == 0 { break; }
+        }
+    }
+    hits.sort_unstable();
+    hits.dedup();
+    hits
+}
+
 /// Walks committed, readable pages within [base, base+size), returning each region's
 /// (start address, bytes). When `exec_only` is set, only pages with an executable
 /// protection flag are included. Regions larger than `max_region_size` are skipped
 /// without reading — bounds scans over huge anonymous mappings (JIT heaps, etc.).
-fn walk_committed_regions(
+pub fn walk_committed_regions(
     pid: u32,
     base: usize,
     size: usize,

@@ -10,6 +10,7 @@ This requires **two game sessions** to filter down to a stable chain.
 ---
 
 ## What You Need
+
 - Cell to Singularity running (Steam version)
 - Cheat Engine 7.x
 - The Darwinium address from Session 1 already found: proceed from Step 2
@@ -19,12 +20,14 @@ This requires **two game sessions** to filter down to a stable chain.
 ## Session 1 — Find the Address and Run the Pointer Scan
 
 ### Step 1 — Find the Darwinium Address (already done if you have it)
+
 1. Attach Cheat Engine to `CellToSingularity.exe`
 2. Set Value Type to **Double**, scan for your current Darwinium amount
 3. Change it in-game, rescan — repeat until 1 address remains
 4. Add it to the address table
 
 ### Step 2 — Run the Pointer Scan
+
 1. Right-click the Darwinium address in the address table
 2. Select **"Pointer scan for this address"**
 3. In the dialog that appears:
@@ -38,6 +41,7 @@ This requires **two game sessions** to filter down to a stable chain.
 6. **Leave everything open. Do not close the game.**
 
 ### Step 3 — Change Darwinium and Rescan (same session)
+
 1. Go back to the game and spend or earn some Darwinium so the amount changes
 2. Go back to the Cheat Engine pointer scan results window
 3. Click **Pointer Scanner → Rescan memory**
@@ -73,6 +77,7 @@ will vary — just paste what Cheat Engine shows.
 ---
 
 ## Tips
+
 - Results with fewer hops (2–3) are generally more stable than long chains (5–6)
 - Prefer results where the base is `CellToSingularity.exe` over `mono-2.0-bdwgc.dll`
 - If Session 2 still shows hundreds of results, close/reopen the game one more time and rescan again

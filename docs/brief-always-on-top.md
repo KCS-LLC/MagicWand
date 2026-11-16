@@ -1,6 +1,7 @@
 # Brief: Always-On-Top Toggle
 
 ## Status
+
 Unimplemented.
 
 ## Problem
@@ -27,10 +28,7 @@ Full file context — add to the `"permissions"` array alongside existing entrie
 {
   "identifier": "default",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "core:window:allow-set-always-on-top"
-  ]
+  "permissions": ["core:default", "core:window:allow-set-always-on-top"]
 }
 ```
 
@@ -59,16 +57,16 @@ const toggleAlwaysOnTop = async () => {
 Add a pin button to the sidebar below the nav items, or to the top of the main content header. The sidebar placement keeps it always accessible regardless of which page is active:
 
 ```tsx
-<aside className="sidebar">
-  <div className="logo"><span>✨</span> Magic Wand</div>
-  <nav>
-    {/* existing nav items */}
-  </nav>
+<aside className='sidebar'>
+  <div className='logo'>
+    <span>✨</span> Magic Wand
+  </div>
+  <nav>{/* existing nav items */}</nav>
   <div style={{ marginTop: 'auto' }}>
     <button
       className={`nav-item ${alwaysOnTop ? 'active' : ''}`}
       onClick={toggleAlwaysOnTop}
-      title="Keep Magic Wand on top of other windows"
+      title='Keep Magic Wand on top of other windows'
     >
       📌 Always on Top
     </button>

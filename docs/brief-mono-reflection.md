@@ -1,18 +1,21 @@
 # Brief: Mono Reflection Traversal
 
 ## Status
+
 Unimplemented.
 
 ## Problem
+
 The `scan` cheat type requires user interaction every session: enter current value, scan, optionally change the value and rescan to narrow duplicates. This is necessary because Unity's Mono GC heap relocates on every launch — no address survives a restart.
 
-Mono reflection fixes this by navigating the Mono *runtime metadata* instead of scanning the heap. The runtime re-establishes the same class/field layout every launch; only the heap base moves. Once you know the assembly, class, and field name, the value's address can be resolved deterministically every session with no user input.
+Mono reflection fixes this by navigating the Mono _runtime metadata_ instead of scanning the heap. The runtime re-establishes the same class/field layout every launch; only the heap base moves. Once you know the assembly, class, and field name, the value's address can be resolved deterministically every session with no user input.
 
 ---
 
 ## One-Time Discovery (manual, per game version)
 
 Before writing a Mono cheat, the trainer author must identify:
+
 - **Assembly name** — almost always `Assembly-CSharp`
 - **Namespace** — often empty; game-dependent
 - **Class name** — e.g. `CurrencyManager`
@@ -32,9 +35,11 @@ Before writing a Mono cheat, the trainer author must identify:
 ### Cell to Singularity — fields to discover
 
 The exact class/field names are not yet confirmed. Using dnSpy on:
+
 ```
 <CellToSingularity install>\CellToSingularity_Data\Managed\Assembly-CSharp.dll
 ```
+
 Search for `darwinium` or look in classes named `CurrencyManager`, `GameManager`, `PlayerData`, or `Singularity`. The field type will be `double` (confirmed from CE scan). Note whether it is `static`.
 
 ---
@@ -59,6 +64,7 @@ Search for `darwinium` or look in classes named `CurrencyManager`, `GameManager`
 ```
 
 Fields:
+
 - `monoAssembly` — assembly name without `.dll`
 - `monoNamespace` — class namespace; use `""` if none
 - `monoClass` — class name
@@ -370,6 +376,7 @@ fn resolve_mono_field(
 ```
 
 Register in `invoke_handler`:
+
 ```rust
 resolve_mono_field,
 ```
@@ -459,7 +466,10 @@ The only addition: treat `mono` like `action` in the type check:
 Add a CSS badge color for `mono`:
 
 ```css
-.cheat-type-mono { background: #1a1a3a; color: #818cf8; }
+.cheat-type-mono {
+  background: #1a1a3a;
+  color: #818cf8;
+}
 ```
 
 ---
@@ -505,17 +515,20 @@ If the traversal fails (`Could not locate Mono root domain` or class not found),
 4. Adjust the `MonoOffsets` constants — `domain_assemblies`, `image_class_cache`, and `class_runtime_info` are the most version-sensitive
 
 Alternatively, add a `mono_offsets` object to the trainer JSON so offsets can be tuned without recompiling:
+
 ```json
 "monoOffsets": {
   "domainAssemblies": 208,
   "imageClassCache": 888
 }
 ```
+
 This is optional for v1.
 
 ---
 
 ## Acceptance Criteria
+
 - `resolve_mono_field` Tauri command returns the correct address for a known static double field in a live process
 - The returned address matches Cheat Engine's Mono dissector for the same field
 - Mono cheat fires and writes `onValue` with a single button click
@@ -525,6 +538,7 @@ This is optional for v1.
 - `monoStatic: false` returns a clear "not yet supported" error rather than a crash
 
 ## Notes
+
 - **Instance field support** is out of scope for v1. All Unity currency values tested so far are static. If a game uses instance fields, a future brief should cover `mono_gc_get_objects` heap enumeration.
 - **IL2CPP games** (most new Unity titles, e.g. Genshin Impact) use a completely different reflection path and are out of scope for this brief. IL2CPP strips the managed runtime; you'd need to navigate the IL2CPP metadata instead. Check which backend a game uses: if `mono-2.0-bdwgc.dll` is present in the process → Mono; if `GameAssembly.dll` is present instead → IL2CPP.
 - The `scan` cheat type in `cell-to-singularity.json` should remain as a fallback until the Mono path is validated against a live session.

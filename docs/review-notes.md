@@ -18,14 +18,16 @@ Original review summary follows for the record.
 
 1. **Rust: `engine.rs:79` does not build.**
    `ProcessRefreshKind::new()` does not exist in `sysinfo` 0.33.1. Available constructors are `::nothing()` and `::everything()`. Change to:
+
    ```rust
    let refresh = ProcessRefreshKind::nothing().with_exe(UpdateKind::Always);
    ```
+
    Verify with `cargo check` from `src-tauri/` before re-requesting.
 
 2. **TypeScript: `App.tsx:183` does not build.**
    ```typescript
-   !(['scan', 'mono', 'mono_chain'] as const).includes(cheat.type)
+   !(['scan', 'mono', 'mono_chain'] as const).includes(cheat.type);
    ```
    `as const` narrows the tuple's `includes` parameter to `'scan' | 'mono' | 'mono_chain'`, which won't accept `cheat.type`'s wider union. Pick one:
    - Revert to the original `cheat.type !== 'scan' && cheat.type !== 'mono' && cheat.type !== 'mono_chain'` — three items, the rewrite doesn't earn its keep.
@@ -53,4 +55,5 @@ Original review summary follows for the record.
 - `makeSetter` factory in `useSettings`
 
 ### Status
+
 Posted review on GitHub as a comment (cannot self-request-changes on own PR). Author needs to push fixes for items 1 and 2 (and ideally 3), then ping for re-review.

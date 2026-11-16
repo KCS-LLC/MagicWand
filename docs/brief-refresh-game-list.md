@@ -1,6 +1,7 @@
 # Brief: Refresh Game List
 
 ## Status
+
 Unimplemented.
 
 ## Problem
@@ -22,10 +23,10 @@ const [loading, setLoading] = useState(true);
 const fetchGames = async () => {
   setLoading(true);
   try {
-    const games = await invoke<DetectedGame[]>("scan_games");
+    const games = await invoke<DetectedGame[]>('scan_games');
     setDetectedGames(games);
   } catch (error) {
-    console.error("APP: scan_games error:", error);
+    console.error('APP: scan_games error:', error);
   } finally {
     setLoading(false);
   }
@@ -41,21 +42,21 @@ useEffect(() => {
 Add a refresh button to the library header, next to the search bar:
 
 ```tsx
-<header className="header">
+<header className='header'>
   <h1>My Games</h1>
   <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
     <input
-      type="text"
-      className="search-bar"
-      placeholder="Search library..."
+      type='text'
+      className='search-bar'
+      placeholder='Search library...'
       value={searchQuery}
       onChange={(e) => setSearchQuery(e.target.value)}
     />
     <button
-      className="fire-button"
+      className='fire-button'
       onClick={fetchGames}
       disabled={loading}
-      title="Rescan for running games"
+      title='Rescan for running games'
     >
       {loading ? '...' : '↻'}
     </button>

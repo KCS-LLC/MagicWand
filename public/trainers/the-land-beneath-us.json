@@ -1,0 +1,89 @@
+{
+  "name": "The Land Beneath Us",
+  "executable": "The Land Beneath Us.exe",
+  "cheats": [
+    {
+      "id": "tlbu-gold",
+      "name": "Set Gold",
+      "type": "action",
+      "valueType": "int",
+      "module": "mono-2.0-bdwgc.dll",
+      "monoAssembly": "Assembly-CSharp",
+      "monoNamespace": "",
+      "monoClass": "PlayerController",
+      "monoStaticField": "Instance",
+      "monoPath": [
+        {
+          "className": "PlayerController",
+          "field": "gold"
+        }
+      ],
+      "offsets": [],
+      "onValue": 99999
+    },
+    {
+      "id": "tlbu-soul-bank",
+      "name": "Set Souls",
+      "type": "action",
+      "valueType": "int",
+      "module": "mono-2.0-bdwgc.dll",
+      "monoAssembly": "Assembly-CSharp",
+      "monoNamespace": "",
+      "monoClass": "PlayerStatusController",
+      "monoStaticField": "_instance",
+      "monoPath": [
+        {
+          "className": "PlayerStatusController",
+          "field": "<CurrentSoul>k__BackingField"
+        }
+      ],
+      "offsets": [],
+      "onValue": 99999
+    },
+    {
+      "id": "tlbu-invincible",
+      "name": "Invincibility",
+      "type": "mono_store_nop",
+      "module": "mono-2.0-bdwgc.dll",
+      "monoMethod": {
+        "className": "PlayerController",
+        "method": "Hurt"
+      },
+      "monoStoreField": "hp",
+      "offsets": [],
+      "ilSignature": "7e f9 04 00 04 1d 14 6f 30 06 00 06 02 7b 11 09 00 04 1f 2a 6f dd 15 00 06 0a 7e 5d 0e 00 04 2d 07 06 2c 2e 04 1e 2e 2a 06 2c 0f 7e bd 0e 00 04 1f 0f 17 16 17 6f 14 13 00 06 7e 07 08 00 04 22",
+      "ilPatches": [
+        {
+          "offset": 243,
+          "expect": "28 a9 0b 00 06",
+          "replace": "26 26 00 00 00"
+        },
+        {
+          "offset": 320,
+          "expect": "28 a9 0b 00 06",
+          "replace": "26 26 00 00 00"
+        },
+        {
+          "offset": 859,
+          "expect": "28 a9 0b 00 06",
+          "replace": "26 26 00 00 00"
+        },
+        {
+          "offset": 981,
+          "expect": "28 a9 0b 00 06",
+          "replace": "26 26 00 00 00"
+        },
+        {
+          "offset": 1039,
+          "expect": "28 a9 0b 00 06",
+          "replace": "26 26 00 00 00"
+        },
+        {
+          "offset": 1072,
+          "expect": "28 a9 0b 00 06",
+          "replace": "26 26 00 00 00"
+        }
+      ]
+    }
+  ]
+}

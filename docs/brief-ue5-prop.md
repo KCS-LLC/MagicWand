@@ -1,15 +1,19 @@
 # Brief: UE5 Property Cheat Type (`ue5_prop`)
 
 ## Status
+
 Unimplemented.
 
 ## Problem
+
 Borderlands 4 and other Unreal Engine 5 games are compiled C++ — there are no managed assemblies, so the `mono` and `mono_chain` cheat types do not apply. The existing `toggle` and `patch` types require AOB byte signatures that are version-fragile and require manual Cheat Engine research each game update.
 
 UE5 ships its own runtime reflection system (`UObject` / `UClass` / `FProperty`) that is structurally analogous to Mono metadata: class names, property names, and field byte offsets are all present in the running process memory. This brief adds a `ue5_prop` cheat type that navigates this reflection system to find live game objects and read/write their properties by name — no AOB signature hunting required.
 
 ## Goal
+
 A `"ue5_prop"` cheat type that:
+
 1. Locates the global `GObjects` array via a one-time AOB pattern (stable across sessions)
 2. Iterates `GObjects` to find the first live `UObject` whose class name matches `ue5ClassName`
 3. Reads or writes the property value at `object_ptr + ue5PropertyOffset`
@@ -39,6 +43,7 @@ Property offsets and class names are discovered via UE4SS and baked into the tra
 ```
 
 Fields:
+
 - `ue5GObjectsAob` — AOB pattern inside `module` whose RIP-relative operand resolves to the `GObjects` pointer. Discovered once via UE4SS or CE and baked in. Example: `"48 8B 05 ?? ?? ?? ?? 48 85 C0 74 ?? 8B 40 08"`
 - `ue5GNamesAob` — AOB pattern whose RIP-relative operand resolves to `GNames` (the FName string pool). Same discovery method. Required for class name comparison.
 - `ue5ClassName` — Exact `UClass` name to search for in `GObjects` (e.g. `"BP_OakPlayerCharacter_C"`). Obtained from UE4SS Object Dumper output.
@@ -285,6 +290,7 @@ fn resolve_ue5_prop(
 ```
 
 Register in `invoke_handler`:
+
 ```rust
 resolve_ue5_prop,
 ```
@@ -309,6 +315,7 @@ export interface Cheat {
 ```
 
 Update the `type` union:
+
 ```typescript
 type: 'toggle' | 'action' | 'patch' | 'scan' | 'mono' | 'mono_chain' | 'ue5_prop';
 ```
@@ -399,7 +406,10 @@ Exclude `ue5_prop` from live value display (the pawn pointer re-resolves each ti
 Add a CSS badge in `src/App.css`:
 
 ```css
-.cheat-type-ue5_prop { background: #1a2a1a; color: #86efac; }
+.cheat-type-ue5_prop {
+  background: #1a2a1a;
+  color: #86efac;
+}
 ```
 
 ---
@@ -408,14 +418,14 @@ Add a CSS badge in `src/App.css`:
 
 All `Ue5Offsets` defaults are starting points. Verify against UE4SS output for BL4 (UE 5.5.4.1):
 
-| Field | How to verify |
-|---|---|
-| `uobject_class` | In UE4SS Live View, note the byte offset of the class pointer in any object |
-| `uclass_children` | Check the offset of the first FProperty in a known class |
-| `ffield_next` | Follow two consecutive properties and verify the Next pointer offset |
-| `fproperty_offset_internal` | Cross-check `ue5PropertyOffset` in JSON against what UE4SS reports |
-| `gobjects_chunk_size` | UE4SS will report number of objects; divide by chunks to confirm |
-| GNames layout | Resolve a known FName (e.g. index 0 = "None") and confirm string reads correctly |
+| Field                       | How to verify                                                                    |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `uobject_class`             | In UE4SS Live View, note the byte offset of the class pointer in any object      |
+| `uclass_children`           | Check the offset of the first FProperty in a known class                         |
+| `ffield_next`               | Follow two consecutive properties and verify the Next pointer offset             |
+| `fproperty_offset_internal` | Cross-check `ue5PropertyOffset` in JSON against what UE4SS reports               |
+| `gobjects_chunk_size`       | UE4SS will report number of objects; divide by chunks to confirm                 |
+| GNames layout               | Resolve a known FName (e.g. index 0 = "None") and confirm string reads correctly |
 
 If `find_object_by_class` returns null for a known-valid class name, the most likely culprits are `uobject_name`, `fname_entry_header`, or `fname_stride`. Log the raw bytes at those offsets and compare against UE4SS's reported name for the same object.
 
